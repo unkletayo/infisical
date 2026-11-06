@@ -1,87 +1,137 @@
+import { OrderByDirection } from "@app/hooks/api/generic/types";
+import { IdentityMembershipOrg } from "@app/hooks/api/identities/types";
+
+import { MfaMethod } from "../auth/types";
+
+export enum SsoMfaTrust {
+  None = "none",
+  Signal = "signal"
+}
+
+export type TSecretShareBrandConfig = {
+  primaryColor?: string;
+  secondaryColor?: string;
+} | null;
+
 export type Organization = {
-  _id: string;
+  id: string;
   name: string;
   createAt: string;
   updatedAt: string;
-};
-
-export type RenameOrgDTO = {
-  orgId: string;
-  newOrgName: string;
-};
-
-export type BillingDetails = {
-  name: string;
-  email: string;
-}
-
-export type PlanBillingInfo = {
-  amount: number;
-  currentPeriodEnd: number;
-  currentPeriodStart: number;
-  interval: "month" | "year";
-  intervalCount: number;
-  quantity: number;
-}
-
-export type Invoice = {
-  _id: string;
-  created: number;
-  invoice_pdf: string;
-  number: string;
-  paid: boolean;
-  total: number;
-}
-
-export type PmtMethod = {
-  _id: string;
-  brand: string;
-  exp_month: number;  
-  exp_year: number;
-  funding: string;
-  last4: string;
-}
-
-export type TaxID = {
-  _id: string;
-  country: string;
-  type: string;
-  value: string;
-}
-
-export type OrgPlanTableHead = {
-  name: string;
-}
-
-export type OrgPlanTableRow = {
-  name: string;
-  allowed: number | boolean | null;
-  used: string;
-}
-
-export type OrgPlanTable = {
-  head: OrgPlanTableHead[];
-  rows: OrgPlanTableRow[];
-}
-
-export type ProductsTableHead = {
-  name: string;
-  price: number | null;
-  priceLine: string;
-  productId: string;
+  authEnforced: boolean;
+  googleSsoAuthEnforced: boolean;
+  bypassOrgAuthEnabled: boolean;
+  orgAuthMethod: string;
+  scimEnabled: boolean;
   slug: string;
-  tier: number;
+  defaultMembershipRole: string;
+  enforceMfa: boolean;
+  selectedMfaMethod?: MfaMethod;
+  ssoMfaTrust: SsoMfaTrust;
+  shouldUseNewPrivilegeSystem: boolean;
+  allowSecretSharingOutsideOrganization?: boolean;
+  userTokenExpiration?: string;
+  userRole: string;
+  userJoinedAt: string;
+  secretsProductEnabled: boolean;
+  pkiProductEnabled: boolean;
+  kmsProductEnabled: boolean;
+  scannerProductEnabled: boolean;
+  shareSecretsProductEnabled: boolean;
+  maxSharedSecretLifetime: number;
+  maxSharedSecretViewLimit: number | null;
+  blockDuplicateSecretSyncDestinations: boolean;
+  allowCrossProjectSecretSharing: boolean;
+  requireGatewayPools: boolean;
+  parentOrgId: string | null;
+  rootOrgId: string | null;
+  secretShareBrandConfig?: TSecretShareBrandConfig;
+  pamProjectId: string | null;
+};
+
+export type UpdateOrgDTO = {
+  orgId: string;
+  name?: string;
+  authEnforced?: boolean;
+  googleSsoAuthEnforced?: boolean;
+  scimEnabled?: boolean;
+  slug?: string;
+  defaultMembershipRoleSlug?: string;
+  enforceMfa?: boolean;
+  selectedMfaMethod?: MfaMethod;
+  ssoMfaTrust?: SsoMfaTrust;
+  allowSecretSharingOutsideOrganization?: boolean;
+  bypassOrgAuthEnabled?: boolean;
+  userTokenExpiration?: string;
+  secretsProductEnabled?: boolean;
+  pkiProductEnabled?: boolean;
+  kmsProductEnabled?: boolean;
+  scannerProductEnabled?: boolean;
+  shareSecretsProductEnabled?: boolean;
+  maxSharedSecretViewLimit?: number | null;
+  maxSharedSecretLifetime?: number;
+  blockDuplicateSecretSyncDestinations?: boolean;
+  allowCrossProjectSecretSharing?: boolean;
+  requireGatewayPools?: boolean;
+  secretShareBrandConfig?: TSecretShareBrandConfig;
+};
+
+export type TListOrgIdentitiesDTO = {
+  organizationId: string;
+  offset?: number;
+  limit?: number;
+  orderBy?: OrgIdentityOrderBy;
+  orderDirection?: OrderByDirection;
+  search?: string;
+};
+
+export type TOrgIdentitiesList = {
+  identityMemberships: IdentityMembershipOrg[];
+  totalCount: number;
+};
+
+export enum OrgIdentityOrderBy {
+  Name = "name",
+  Role = "role",
+  LastLogin = "lastLogin"
 }
 
-export type ProductsTableRow = {
-  name: string;
-  starter: number | boolean | null;
-  team: number | boolean | null;
-  pro: number | boolean | null;
-  enterprise: number | boolean | null;
+export enum OrgMembershipStatus {
+  Invited = "invited",
+  Accepted = "accepted"
 }
 
-export type ProductsTable = {
-  head: ProductsTableHead[];
-  rows: ProductsTableRow[];
-}
+export type TOrgProductStats = {
+  secretManager: {
+    secretsCount: number;
+    environmentsCount: number;
+    projectsCount: number;
+  };
+  certificateManager: {
+    certificatesCount: number;
+    certificateAuthoritiesCount: number;
+    signersCount: number;
+  };
+  kms: {
+    keysCount: number;
+    clientsCount: number;
+    projectsCount: number;
+  };
+  secretScanning: {
+    dataSourcesCount: number;
+    resourcesCount: number;
+    findingsCount: number;
+    projectsCount: number;
+  };
+  pam: {
+    accountsCount: number;
+    accountTemplatesCount: number;
+    foldersCount: number;
+  };
+  agentVault: {
+    accessBundlesCount: number;
+    servicesCount: number;
+    proxiesCount: number;
+    projectsCount: number;
+  };
+};

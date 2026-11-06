@@ -1,137 +1,106 @@
 ---
-title: "Quick usage"
-description: "Manage secrets with Infisical CLI"
+title: "CLI quickstart"
+sidebarTitle: "Quickstart"
+description: "Get started with the Infisical CLI."
 ---
 
-The CLI is designed for a variety of applications, ranging from local secret management to CI/CD and production scenarios. 
-The distinguishing factor, however, is the authentication method used.
+import InstallCli from "/snippets/cli/install-cli.mdx";
+import LogIn from "/snippets/cli/local-development/log-in.mdx";
 
-<Tabs>
-  <Tab title="Local development">
-    To use the Infisical CLI in your development environment, simply run the command below and follow the interactive guide. 
+Every Infisical product that has a CLI workflow starts the same way: install the CLI, log in, and check that the CLI can reach your Infisical instance. This page covers those steps, then links to the command reference.
 
-    ```bash 
-    infisical login 
-    ```
+<Tip>
+  If you prefer to learn by watching, follow along with our [video walkthrough of the Infisical CLI](https://www.youtube.com/watch?v=WQz6BCygORA).
+</Tip>
 
-    <Note>
-      If you are in a containerized environment such as WSL 2 or Codespaces, run `infisical login -i` to avoid browser based login 
-    </Note>
+## Prerequisites
 
-    ## Initialize Infisical for your project
+- An Infisical account on [Infisical Cloud](https://app.infisical.com) or on a [self-hosted instance](/self-hosting/overview)
 
-    ```bash
-    # navigate to your project
-    cd /path/to/project
+## Step 1: Install the CLI
 
-    # initialize infisical
-    infisical init
-    ```
+Install the CLI with the package manager for your operating system.
 
-    This will create `.infisical.json` file at the location the command was executed. This file contains your [local project settings](./project-config). It does not contain any sensitive data. 
-    
-  </Tab>
+<InstallCli />
 
-  <Tab title="CI/CD, Production usage, etc">
-    To use Infisical for non local development scenarios, please create a [service token](../documentation/platform/token). The service token will allow you to authenticate and interact with Infisical. 
-    Once you have created a service token with the required permissions, you'll need to feed the token to the CLI. 
+Check that the installation worked:
 
-    #### Pass as flag
-    You may use the --token flag to set the token 
-
-    ```
-    infisical export --token=<>
-    infisical secrets --token=<>
-    infisical run --token=<> -- npm run dev
-    ```
-
-    #### Pass via shell environment variable
-    The CLI is configured to look for an environment variable named `INFISICAL_TOKEN`. If set, it'll attempt to use it for authentication.
-
-    ```
-    export INFISICAL_TOKEN=<>
-    ```
-    
-
-  </Tab>
-</Tabs>
-
-
-## Inject environment variables
-<Tabs>
-  <Tab title="Feed secrets to your application">
-    ```bash
-    infisical run -- [your application start command]
-
-    # example with node (nodemon)
-    infisical run --env=dev --path=/apps/firefly -- nodemon index.js
-
-    # example with flask
-    infisical run -- flask run
-
-    # example with spring boot - maven
-    infisical run -- ./mvnw spring-boot:run --quiet
-    ```
-  </Tab>
-  <Tab title="Feed secrets via custom aliases (advanced)">
-    Custom aliases can utilize secrets from Infisical. Suppose there is a custom alias `yd` in `custom.sh` that runs `yarn dev` and needs the secrets provided by Infisical.
-    ```bash
-    #!/bin/sh
-
-    yd() {
-      yarn dev
-    }
-    ```
-
-    To make the secrets available from Infisical to `yd`, you can run the following command:
-
-    ```bash
-    infisical run --command="source custom.sh && yd"
-    ```
-  </Tab>
-</Tabs>
-
-View all available options for `run` command [here](./commands/run)
-
-## Connect CLI to self hosted Infisical 
-
-<Accordion title="Optional: point CLI to self-hosted">
-The CLI is set to connect to Infisical Cloud by default, but if you're running your own instance of Infisical, you can direct the CLI to it using one of the methods provided below.
-
-#### Method 1: Use the updated CLI
-Beginning with CLI version V0.4.0, it is now possible to choose between logging in through the Infisical cloud or your own self-hosted instance. Simply execute the `infisical login` command and follow the on-screen instructions.
-
-#### Method 2: Export environment variable 
-You can point the CLI to the self hosted Infisical instance by exporting the environment variable `INFISICAL_API_URL` in your terminal.
-
-<Tabs>
-  <Tab title="Linux/MacOs">
-		```bash
-		# Set backend host 
-		export INFISICAL_API_URL="https://your-self-hosted-infisical.com/api"
-
-		# Remove backend host 
-		unset INFISICAL_API_URL
-		```
-  </Tab>
-  <Tab title="Windows Powershell">
-		```bash
-		# Set backend host 
-		setx INFISICAL_API_URL "https://your-self-hosted-infisical.com/api"
-
-		# Remove backend host 
-		setx INFISICAL_API_URL ""
-
-		# NOTE: Once set or removed, please restart powershell for the change to take effect
-		```
-  </Tab>
-</Tabs>
-
-#### Method 3: Set manually on every command
-Another option to point the CLI to your self hosted Infisical instance is to set it via a flag on every command you run.
-
-```bash 
-# Example
-infisical <any-command> --domain="https://your-self-hosted-infisical.com/api"
+```bash
+infisical --version
 ```
-</Accordion>
+
+## Step 2: Log in
+
+Log in with your own account when you run the CLI yourself, such as on your laptop during local development. Log in as a [machine identity](/documentation/platform/identities/machine-identities) when the CLI runs without you, such as in a CI/CD pipeline, a container, a scheduled job, or a script on a shared server.
+
+<Note>
+If your Infisical instance is behind a service that requires its own headers, such as Cloudflare Access, [ set those up first](/cli/faq#how-do-i-use-custom-headers-with-the-infisical-cli).
+</Note>
+
+<Tabs>
+  <Tab title="Your own account">
+    <LogIn />
+
+    The CLI saves the instance you select with your login, so later commands use it without asking again.
+  </Tab>
+  <Tab title="Machine identity">
+    <Steps>
+      <Step>
+        Follow the [Universal Auth guide](/documentation/platform/identities/universal-auth) to create a machine identity and get a **Client ID** and **Client Secret** for it.
+      </Step>
+      <Step>
+        If you use EU Cloud, a dedicated instance, or a self-hosted instance, set `INFISICAL_DOMAIN` to the address of your instance. A machine identity login doesn't save the instance, so without `INFISICAL_DOMAIN` every command goes to US Cloud (`https://app.infisical.com`).
+
+        <CodeGroup>
+          ```bash macOS/Linux
+          export INFISICAL_DOMAIN="https://your-domain.infisical.com"
+          ```
+
+          ```powershell Windows (PowerShell)
+          setx INFISICAL_DOMAIN "https://your-domain.infisical.com"
+          ```
+        </CodeGroup>
+
+        On Windows, `setx` saves the variable for new sessions only, so restart PowerShell before you run the next command.
+
+        To set the instance another way, such as with the `--domain` flag or in `.infisical.yaml`, see [Set the Infisical instance](/cli/project-config#set-the-infisical-instance).
+      </Step>
+      <Step>
+        Log in with the client ID and client secret, and store the access token in the `INFISICAL_TOKEN` environment variable:
+
+        ```bash
+        export INFISICAL_TOKEN=$(infisical login --method=universal-auth --client-id=<identity-client-id> --client-secret=<identity-client-secret> --silent --plain)
+        ```
+
+        `--plain` prints only the token, and `--silent` hides update and tip messages, so the command's output is just the token. The CLI reads `INFISICAL_TOKEN` automatically, so every later command in the same shell is authenticated.
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Step 3: Check that you're logged in
+
+```bash
+infisical login status
+```
+
+The CLI asks your Infisical instance whether your login is valid. If it is, the output starts with the account or machine identity you're logged in as, followed by the instance the CLI connected to:
+
+```text
+✓ Authenticated as <your-email-or-identity-name>
+  - Domain: https://app.infisical.com
+```
+
+The lines after `Domain` include when your login expires and which organization it belongs to. If the output says `You are not authenticated`, log in again. If it says `Failed to authenticate`, check that the `Domain` line shows your instance, then log in again.
+
+<Check>
+You successfully installed and logged into the Infisical CLI.
+</Check>
+
+## Next steps
+
+Now that you've installed the CLI and logged in, you can start using its commands.
+
+<Card title="Command reference" icon="square-terminal" href="/cli/reference" horizontal>
+  See every CLI command, with its arguments, flags, and examples
+</Card>

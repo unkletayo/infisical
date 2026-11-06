@@ -3,18 +3,24 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@app/config/request";
 
 import { queryKeys } from "./query";
-import { TCreateWebhookDto, TDeleteWebhookDto, TTestWebhookDTO, TUpdateWebhookDto } from "./types";
+import {
+  TCreateWebhookDto,
+  TDeleteWebhookDto,
+  TTestWebhookDTO,
+  TUpdateWebhookDto,
+  WebhookEvent
+} from "./types";
 
 export const useCreateWebhook = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, TCreateWebhookDto>({
+  return useMutation<object, object, TCreateWebhookDto>({
     mutationFn: async (dto) => {
       const { data } = await apiRequest.post("/api/v1/webhooks", dto);
       return data;
     },
-    onSuccess: (_, { workspaceId }) => {
-      queryClient.invalidateQueries(queryKeys.getWebhooks(workspaceId));
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.getWebhooks(projectId) });
     }
   });
 };
@@ -22,16 +28,16 @@ export const useCreateWebhook = () => {
 export const useTestWebhook = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, TTestWebhookDTO>({
+  return useMutation<object, object, TTestWebhookDTO>({
     mutationFn: async ({ webhookId }) => {
       const { data } = await apiRequest.post(`/api/v1/webhooks/${webhookId}/test`);
       return data;
     },
-    onSuccess: (_, { workspaceId }) => {
-      queryClient.invalidateQueries(queryKeys.getWebhooks(workspaceId));
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.getWebhooks(projectId) });
     },
-    onError: (_, { workspaceId }) => {
-      queryClient.invalidateQueries(queryKeys.getWebhooks(workspaceId));
+    onError: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.getWebhooks(projectId) });
     }
   });
 };
@@ -39,15 +45,28 @@ export const useTestWebhook = () => {
 export const useUpdateWebhook = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, TUpdateWebhookDto>({
+  return useMutation<object, object, TUpdateWebhookDto>({
     mutationFn: async (dto) => {
+      const payload: {
+        isDisabled?: boolean;
+        eventsFilter?: { eventName: WebhookEvent }[];
+      } = {};
+
+      if (dto.isDisabled !== undefined) {
+        payload.isDisabled = dto.isDisabled;
+      }
+
+      if (dto.eventsFilter !== undefined) {
+        payload.eventsFilter = dto.eventsFilter;
+      }
+
       const { data } = await apiRequest.patch(`/api/v1/webhooks/${dto.webhookId}`, {
-        isDisabled: dto.isDisabled
+        ...payload
       });
       return data;
     },
-    onSuccess: (_, { workspaceId }) => {
-      queryClient.invalidateQueries(queryKeys.getWebhooks(workspaceId));
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.getWebhooks(projectId) });
     }
   });
 };
@@ -55,13 +74,13 @@ export const useUpdateWebhook = () => {
 export const useDeleteWebhook = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, TDeleteWebhookDto>({
+  return useMutation<object, object, TDeleteWebhookDto>({
     mutationFn: async (dto) => {
       const { data } = await apiRequest.delete(`/api/v1/webhooks/${dto.webhookId}`);
       return data;
     },
-    onSuccess: (_, { workspaceId }) => {
-      queryClient.invalidateQueries(queryKeys.getWebhooks(workspaceId));
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.getWebhooks(projectId) });
     }
   });
 };

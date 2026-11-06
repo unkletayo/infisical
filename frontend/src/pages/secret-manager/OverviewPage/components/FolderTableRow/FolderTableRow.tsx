@@ -1,0 +1,331 @@
+import { useState } from "react";
+import {
+  EditIcon,
+  FolderIcon,
+  FolderInputIcon,
+  InfoIcon,
+  SaveIcon,
+  TrashIcon,
+  Undo2Icon,
+  UsersIcon
+} from "lucide-react";
+import { twMerge } from "tailwind-merge";
+
+import {
+  Checkbox,
+  IconButton,
+  RowLink,
+  TableCell,
+  TableRow,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@app/components/v3";
+import { ROUTE_PATHS } from "@app/const/routes";
+import { PendingAction } from "@app/hooks/api/secretFolders/types";
+
+import { pendingActionBorderClass, pendingActionRowClass } from "../pendingActionStyles";
+import { ResourceEnvironmentStatusCell } from "../ResourceEnvironmentStatusCell";
+import {
+  TABLE_ROW_ACTION_BAR_CLASS_NAME,
+  TABLE_ROW_ACTION_BUTTON_CLASS_NAME,
+  TABLE_ROW_ACTIVE_FILTER_CLASS_NAME
+} from "../tableRowActionStyles";
+
+type Props = {
+  folderName: string;
+  secretPath: string;
+  isNavigationDisabled: boolean;
+  description?: string;
+  environments: { name: string; slug: string }[];
+  isFolderPresentInEnv: (name: string, env: string) => boolean;
+  onClick: (path: string) => void;
+  isSelected: boolean;
+  onToggleFolderSelect: (folderName: string, isShiftKey: boolean) => void;
+  onToggleFolderEdit: (name: string) => void;
+  onToggleFolderMove: (name: string) => void;
+  onToggleFolderDelete: (name: string) => void;
+  onToggleFolderAccess?: (name: string) => void;
+  canManageFolderAccess?: boolean;
+  canEditFolder: boolean;
+  canDeleteFolder: boolean;
+  pendingAction?: PendingAction;
+  onBatchRevert?: (folderName: string) => void;
+  onPendingSave?: (folderName: string) => Promise<void>;
+  isSelectionDisabled?: boolean;
+};
+
+export const FolderTableRow = ({
+  folderName,
+  secretPath,
+  isNavigationDisabled,
+  description,
+  environments = [],
+  isFolderPresentInEnv,
+  isSelected,
+  onToggleFolderSelect,
+  onToggleFolderEdit,
+  onToggleFolderMove,
+  onToggleFolderDelete,
+  onToggleFolderAccess,
+  canManageFolderAccess,
+  canEditFolder,
+  canDeleteFolder,
+  onClick,
+  pendingAction,
+  onBatchRevert,
+  onPendingSave,
+  isSelectionDisabled
+}: Props) => {
+  const [isSavingPendingChange, setIsSavingPendingChange] = useState(false);
+
+  const isSingleEnvView = environments.length === 1;
+
+  return (
+    <TableRow
+      linked
+      className={twMerge(
+        "group hover:z-10",
+        isSelected && TABLE_ROW_ACTIVE_FILTER_CLASS_NAME,
+        pendingActionRowClass(pendingAction)
+      )}
+    >
+      <TableCell
+        className={twMerge(
+          "w-10 max-w-10 min-w-10 p-0",
+          isSingleEnvView
+            ? ""
+            : "sticky left-0 z-10 bg-container transition-colors duration-75 group-hover:bg-container-hover",
+          pendingActionBorderClass(pendingAction)
+        )}
+        onClick={isNavigationDisabled ? undefined : () => onClick(folderName)}
+      >
+        <div className="flex h-full items-center justify-center [&>svg]:size-4">
+          <Checkbox
+            variant="project"
+            id={`checkbox-${folderName}`}
+            isChecked={isSelected}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFolderSelect(folderName, e.shiftKey);
+            }}
+            className={twMerge(
+              "hidden",
+              !isSelectionDisabled && "group-hover:flex",
+              isSelected && "flex"
+            )}
+          />
+          <FolderIcon
+            className={twMerge(
+              "block text-folder",
+              !isSelectionDisabled && "group-hover:!hidden",
+              isSelected && "!hidden"
+            )}
+          />
+        </div>
+      </TableCell>
+      <TableCell
+        isTruncatable
+        colSpan={isSingleEnvView ? 2 : undefined}
+        className={
+          isSingleEnvView
+            ? "transition-all duration-75"
+            : "sticky left-10 z-10 border-r bg-container transition-all duration-75 group-hover:bg-container-hover"
+        }
+      >
+        <div className="flex min-w-0 items-center">
+          <RowLink
+            disabled={isNavigationDisabled}
+            from={ROUTE_PATHS.SecretManager.OverviewPage.path}
+            to="."
+            search={(prev) => ({
+              ...prev,
+              secretPath: `${secretPath === "/" ? "" : secretPath}/${folderName}`,
+              environments: environments.map(({ slug }) => slug)
+            })}
+            onClick={(event) => {
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              )
+                return;
+              event.preventDefault();
+              onClick(folderName);
+            }}
+            title={folderName}
+            className={twMerge(
+              "min-w-0 truncate",
+              pendingAction === PendingAction.Delete && "text-danger/75 line-through"
+            )}
+          >
+            {folderName}
+          </RowLink>
+          {description && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <InfoIcon className="ml-1.5 !size-3 shrink-0 text-accent" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm">{description}</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+        <div
+          className={twMerge(
+            "absolute z-20",
+            "flex items-center rounded-md border border-border bg-container-hover px-0.5 py-0.5 shadow-md",
+            TABLE_ROW_ACTION_BAR_CLASS_NAME,
+            isSingleEnvView
+              ? "top-1/2 right-[2px] -translate-y-1/2"
+              : "top-1/2 right-[3px] -translate-y-1/2"
+          )}
+        >
+          {pendingAction !== PendingAction.Delete && (
+            <Tooltip>
+              <TooltipTrigger>
+                <IconButton
+                  aria-label="Move folder"
+                  variant="ghost"
+                  size="xs"
+                  className={TABLE_ROW_ACTION_BUTTON_CLASS_NAME}
+                  isDisabled={!canEditFolder}
+                  onClick={(e) => {
+                    onToggleFolderMove(folderName);
+                    e.stopPropagation();
+                  }}
+                >
+                  <FolderInputIcon />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent>{canEditFolder ? "Move Folder" : "Access Restricted"}</TooltipContent>
+            </Tooltip>
+          )}
+          {pendingAction !== PendingAction.Delete && (
+            <Tooltip>
+              <TooltipTrigger>
+                <IconButton
+                  aria-label="Edit folder"
+                  variant="ghost"
+                  size="xs"
+                  className={TABLE_ROW_ACTION_BUTTON_CLASS_NAME}
+                  isDisabled={!canEditFolder}
+                  onClick={(e) => {
+                    onToggleFolderEdit(folderName);
+                    e.stopPropagation();
+                  }}
+                >
+                  <EditIcon />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent>{canEditFolder ? "Edit Folder" : "Access Restricted"}</TooltipContent>
+            </Tooltip>
+          )}
+          {onToggleFolderAccess && pendingAction !== PendingAction.Delete && (
+            <Tooltip>
+              <TooltipTrigger>
+                <IconButton
+                  aria-label="Manage folder access"
+                  variant="ghost"
+                  size="xs"
+                  className={TABLE_ROW_ACTION_BUTTON_CLASS_NAME}
+                  isDisabled={!canManageFolderAccess}
+                  onClick={(e) => {
+                    onToggleFolderAccess(folderName);
+                    e.stopPropagation();
+                  }}
+                >
+                  <UsersIcon />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent>
+                {canManageFolderAccess ? "Manage Access" : "Access Restricted"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {pendingAction && onPendingSave && (
+            <Tooltip>
+              <TooltipTrigger>
+                <IconButton
+                  aria-label="Save pending folder changes"
+                  variant="ghost"
+                  className={twMerge(TABLE_ROW_ACTION_BUTTON_CLASS_NAME, "hover:text-success")}
+                  size="xs"
+                  isDisabled={
+                    isSavingPendingChange ||
+                    (pendingAction === PendingAction.Delete && !canDeleteFolder) ||
+                    (pendingAction === PendingAction.Update && !canEditFolder)
+                  }
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setIsSavingPendingChange(true);
+                    try {
+                      await onPendingSave(folderName);
+                    } finally {
+                      setIsSavingPendingChange(false);
+                    }
+                  }}
+                >
+                  <SaveIcon />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent>Save pending changes</TooltipContent>
+            </Tooltip>
+          )}
+          {pendingAction ? (
+            <Tooltip>
+              <TooltipTrigger>
+                <IconButton
+                  aria-label="Discard pending folder changes"
+                  variant="ghost"
+                  className={twMerge(TABLE_ROW_ACTION_BUTTON_CLASS_NAME, "hover:text-danger")}
+                  size="xs"
+                  onClick={(e) => {
+                    onBatchRevert?.(folderName);
+                    e.stopPropagation();
+                  }}
+                >
+                  <Undo2Icon />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent>Discard pending changes</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger>
+                <IconButton
+                  aria-label="Delete folder"
+                  variant="ghost"
+                  size="xs"
+                  className={twMerge(TABLE_ROW_ACTION_BUTTON_CLASS_NAME, "hover:text-danger")}
+                  isDisabled={!canDeleteFolder}
+                  onClick={(e) => {
+                    onToggleFolderDelete(folderName);
+                    e.stopPropagation();
+                  }}
+                >
+                  <TrashIcon />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent>
+                {canDeleteFolder ? "Delete Folder" : "Access Restricted"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </TableCell>
+      {!isSingleEnvView &&
+        environments.map(({ slug }, i) => {
+          const isPresent = isFolderPresentInEnv(folderName, slug);
+
+          return (
+            <ResourceEnvironmentStatusCell
+              key={`folder-${slug}-${i + 1}-value`}
+              status={isPresent ? "present" : "missing"}
+            />
+          );
+        })}
+    </TableRow>
+  );
+};

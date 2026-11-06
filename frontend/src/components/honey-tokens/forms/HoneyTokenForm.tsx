@@ -1,0 +1,405 @@
+import { useEffect, useState } from "react";
+import { FormProvider, useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Link } from "@tanstack/react-router";
+
+import { createNotification } from "@app/components/notifications";
+import { Button, SheetFooter, Stepper, StepperList, StepperStep } from "@app/components/v3";
+import { useOrganization, useProject } from "@app/context";
+import { HONEY_TOKEN_DEFAULT_SECRET_NAMES, HONEY_TOKEN_MAP } from "@app/helpers/honeyTokens";
+import { isInfisicalCloud } from "@app/helpers/platform";
+import { useListAwsHoneyTokenDeploymentOptions } from "@app/hooks/api/honeyToken";
+import { useCreateHoneyToken, useUpdateHoneyToken } from "@app/hooks/api/honeyTokens";
+import { HoneyTokenManagedBy, HoneyTokenType } from "@app/hooks/api/honeyTokens/enums";
+import { TDashboardHoneyToken } from "@app/hooks/api/honeyTokens/types";
+import { ProjectEnv } from "@app/hooks/api/projects/types";
+import { fetchProjectSecrets } from "@app/hooks/api/secrets/queries";
+
+import { HoneyTokenConfigurationFields } from "./HoneyTokenConfigurationFields";
+import { HoneyTokenDetailsFields } from "./HoneyTokenDetailsFields";
+import { HoneyTokenMappingFields } from "./HoneyTokenMappingFields/HoneyTokenMappingFields";
+import { HoneyTokenFormSchema, THoneyTokenForm } from "./schemas";
+
+type Props = {
+  onComplete: () => void;
+  type: HoneyTokenType;
+  onCancel: () => void;
+  secretPath: string;
+  environment?: string;
+  environments?: ProjectEnv[];
+  honeyToken?: TDashboardHoneyToken;
+};
+
+type FormTab = {
+  name: string;
+  key: string;
+  shortDescription: string;
+  title: string;
+  subtitle: string;
+  fields: (keyof THoneyTokenForm)[];
+};
+
+const FORM_TABS: FormTab[] = [
+  {
+    name: "Configuration",
+    key: "configuration",
+    shortDescription: "AWS account and environment",
+    title: "Choose where to plant it",
+    subtitle:
+      "Choose the AWS account that holds the decoy credentials and the environment where Infisical stores them.",
+    fields: ["managedBy", "environment"]
+  },
+  {
+    name: "Mapping",
+    key: "mapping",
+    shortDescription: "Secret keys",
+    title: "Map the generated credentials",
+    subtitle: "Choose the secret keys that will receive each decoy credential field.",
+    fields: ["secretsMapping"]
+  },
+  {
+    name: "Details",
+    key: "details",
+    shortDescription: "Name and description",
+    title: "Add honey token details",
+    subtitle: "Give this honey token a clear name and an optional description.",
+    fields: ["name", "description"]
+  }
+];
+
+export const HoneyTokenForm = ({
+  type,
+  onComplete,
+  onCancel,
+  environment: envSlug,
+  secretPath,
+  environments,
+  honeyToken
+}: Props) => {
+  const createHoneyToken = useCreateHoneyToken();
+  const updateHoneyToken = useUpdateHoneyToken();
+  const { currentProject } = useProject();
+  const { currentOrg } = useOrganization();
+  const { name: tokenTypeName } = HONEY_TOKEN_MAP[type];
+
+  const isUpdate = Boolean(honeyToken);
+  const {
+    data: deploymentOptions,
+    isError: isDeploymentOptionsError,
+    isFetching: isFetchingDeploymentOptions,
+    refetch: refetchDeploymentOptions
+  } = useListAwsHoneyTokenDeploymentOptions({
+    enabled: !isUpdate,
+    // The setup page opens in a new tab, so returning here has to pick up the new setup status.
+    refetchOnWindowFocus: "always"
+  });
+  const isDeploymentOptionAvailable = (managedBy: HoneyTokenManagedBy) =>
+    Boolean(
+      deploymentOptions?.some(
+        (option) => option.managedBy === managedBy && !option.unavailableReason
+      )
+    );
+  const formTabs = isUpdate ? FORM_TABS.filter((tab) => tab.key !== "configuration") : FORM_TABS;
+
+  const [selectedTabIndex, setSelectedTabIndex] = useState(0);
+
+  const formMethods = useForm<THoneyTokenForm>({
+    resolver: zodResolver(HoneyTokenFormSchema),
+    defaultValues: honeyToken
+      ? {
+          ...honeyToken,
+          managedBy: honeyToken.config.managedBy,
+          environment: currentProject?.environments.find(
+            (env) => env.slug === honeyToken.environment.slug
+          ),
+          secretPath
+        }
+      : {
+          type,
+          environment: currentProject?.environments.find((env) => env.slug === envSlug),
+          secretPath,
+          secretsMapping: HONEY_TOKEN_DEFAULT_SECRET_NAMES[type]
+        },
+    reValidateMode: "onChange"
+  });
+
+  useEffect(() => {
+    if (!deploymentOptions) return;
+    formMethods.clearErrors("managedBy");
+    if (formMethods.getFieldState("managedBy").isDirty) return;
+
+    // An org that connected its own account most likely wants its tokens there. An unusable option is
+    // left unselected, so the user opens the list and finds why it is disabled and how to set it up.
+    if (isDeploymentOptionAvailable(HoneyTokenManagedBy.Organization)) {
+      formMethods.setValue("managedBy", HoneyTokenManagedBy.Organization);
+    } else if (isInfisicalCloud() && isDeploymentOptionAvailable(HoneyTokenManagedBy.Instance)) {
+      formMethods.setValue("managedBy", HoneyTokenManagedBy.Instance);
+    }
+  }, [deploymentOptions]);
+
+  const onSubmit = async ({ environment, managedBy, ...formData }: THoneyTokenForm) => {
+    if (honeyToken) {
+      await updateHoneyToken.mutateAsync({
+        honeyTokenId: honeyToken.id,
+        projectId: honeyToken.projectId,
+        name: formData.name,
+        description: formData.description,
+        secretsMapping: formData.secretsMapping
+      });
+
+      createNotification({
+        text: `Successfully updated ${tokenTypeName} Honey Token`,
+        type: "success"
+      });
+    } else {
+      const { stackDeployment } = await createHoneyToken.mutateAsync({
+        ...formData,
+        config: { managedBy },
+        environment: environment.slug,
+        projectId: currentProject.id
+      });
+
+      if (stackDeployment && !stackDeployment.deployed) {
+        const isDeploying = stackDeployment.status?.endsWith("_IN_PROGRESS");
+        createNotification({
+          text: isDeploying
+            ? "Token was created, but stack is still deploying."
+            : "Token was created, but stack is not deployed yet.",
+          callToAction: (
+            <Link
+              className="inline-flex h-7 items-center rounded border border-border px-2 text-xs text-foreground transition-colors hover:bg-container-hover"
+              to="/organizations/$orgId/projects/secret-management/product-settings"
+              params={{ orgId: currentOrg.id }}
+            >
+              Go to settings
+            </Link>
+          ),
+          type: "warning"
+        });
+      } else {
+        createNotification({
+          text: `Successfully created ${tokenTypeName} Honey Token`,
+          type: "success"
+        });
+      }
+    }
+    onComplete();
+  };
+
+  const handlePrev = () => {
+    if (selectedTabIndex === 0) {
+      onCancel();
+      return;
+    }
+
+    setSelectedTabIndex((prev) => prev - 1);
+  };
+
+  const {
+    handleSubmit,
+    trigger,
+    formState: { isSubmitting }
+  } = formMethods;
+
+  const isStepValid = async (index: number) => {
+    const isValid = await trigger(formTabs[index].fields);
+    if (!isValid || formTabs[index].key !== "configuration") return isValid;
+
+    // Without the options the form cannot tell whether the selected AWS account is usable.
+    if (!deploymentOptions) {
+      formMethods.setError("managedBy", {
+        message: isDeploymentOptionsError
+          ? "Couldn't load where this honey token can be created."
+          : "Still loading where this honey token can be created. Try again in a moment."
+      });
+      return false;
+    }
+
+    if (
+      formMethods.getValues("managedBy") === HoneyTokenManagedBy.Organization &&
+      !isDeploymentOptionAvailable(HoneyTokenManagedBy.Organization)
+    ) {
+      formMethods.setError("managedBy", {
+        message:
+          isInfisicalCloud() && isDeploymentOptionAvailable(HoneyTokenManagedBy.Instance)
+            ? "Finish connecting your AWS account, or choose Infisical Managed."
+            : "Finish connecting your AWS account to create a honey token."
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  const isFinalStep = selectedTabIndex === formTabs.length - 1;
+
+  const [isValidating, setIsValidating] = useState(false);
+
+  const checkMappingConflicts = async (): Promise<boolean> => {
+    const { environment, secretsMapping } = formMethods.getValues();
+    if (!environment?.slug || !secretsMapping) return true;
+
+    const mappingEntries = Object.entries(secretsMapping);
+    const values = mappingEntries.map(([, v]) => v);
+
+    if (new Set(values).size !== values.length) {
+      formMethods.setError("secretsMapping", {
+        message: "Secret mapping names must be unique."
+      });
+      return false;
+    }
+
+    try {
+      setIsValidating(true);
+      const data = await fetchProjectSecrets({
+        projectId: currentProject.id,
+        environment: environment.slug,
+        secretPath
+      });
+
+      const ownKeys = honeyToken ? new Set(Object.values(honeyToken.secretsMapping)) : new Set();
+      const existingKeys = new Set(data.secrets.map((s) => s.secretKey));
+      const conflicts = values.filter((key) => existingKeys.has(key) && !ownKeys.has(key));
+
+      if (conflicts.length > 0) {
+        formMethods.setError("secretsMapping", {
+          message: `The following secrets already exist in this path: ${conflicts.join(", ")}`
+        });
+        return false;
+      }
+    } catch {
+      createNotification({
+        text: "Failed to validate secret names. Please try again.",
+        type: "error"
+      });
+      return false;
+    } finally {
+      setIsValidating(false);
+    }
+
+    return true;
+  };
+
+  const mappingStepIndex = formTabs.findIndex((tab) => tab.key === "mapping");
+
+  const handleNext = async () => {
+    if (isFinalStep) {
+      handleSubmit(onSubmit)();
+      return;
+    }
+
+    const isValid = await isStepValid(selectedTabIndex);
+
+    if (!isValid) return;
+
+    if (selectedTabIndex === mappingStepIndex && !isUpdate) {
+      const noConflicts = await checkMappingConflicts();
+      if (!noConflicts) return;
+    }
+
+    setSelectedTabIndex((prev) => prev + 1);
+  };
+
+  const isTabEnabled = async (index: number) => {
+    let isEnabled = true;
+    for (let i = index - 1; i >= 0; i -= 1) {
+      // eslint-disable-next-line no-await-in-loop
+      isEnabled = isEnabled && (await isStepValid(i));
+    }
+
+    return isEnabled;
+  };
+
+  const handleStepChange = (index: number) => {
+    isTabEnabled(index).then((isEnabled) => {
+      if (isEnabled) setSelectedTabIndex(index);
+    });
+  };
+
+  const currentStep = formTabs[selectedTabIndex];
+
+  const formFields = (
+    <>
+      {currentStep.key === "configuration" && (
+        <HoneyTokenConfigurationFields
+          environments={environments}
+          deploymentOptions={deploymentOptions}
+          isDeploymentOptionsError={isDeploymentOptionsError}
+          isRetryingDeploymentOptions={isFetchingDeploymentOptions}
+          onRetryDeploymentOptions={() => refetchDeploymentOptions()}
+        />
+      )}
+      {currentStep.key === "mapping" && <HoneyTokenMappingFields />}
+      {currentStep.key === "details" && <HoneyTokenDetailsFields isUpdate={isUpdate} />}
+    </>
+  );
+
+  const displayedStepNumber = selectedTabIndex + 1;
+  const totalSteps = formTabs.length;
+
+  return (
+    <FormProvider {...formMethods}>
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => event.preventDefault()}>
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <aside className="hidden w-60 shrink-0 flex-col border-r border-border px-5 py-6 md:flex">
+            <p className="mb-5 text-[11px] font-medium tracking-wider text-muted uppercase">
+              Setup steps
+            </p>
+            <Stepper
+              activeStep={selectedTabIndex}
+              orientation="vertical"
+              onStepChange={handleStepChange}
+              nonLinear
+            >
+              <StepperList aria-label="Honey token setup progress">
+                {formTabs.map((tab, index) => (
+                  <StepperStep
+                    key={tab.key}
+                    index={index}
+                    title={tab.name}
+                    description={tab.shortDescription}
+                    disabled={isSubmitting || isValidating}
+                  />
+                ))}
+              </StepperList>
+            </Stepper>
+          </aside>
+
+          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+            <div className="border-b border-border px-4 py-4 md:hidden">
+              <p className="text-xs font-medium text-muted">
+                Step {displayedStepNumber} of {totalSteps}: {currentStep.name}
+              </p>
+            </div>
+            <div className="flex w-full max-w-3xl flex-col gap-y-2 px-4 py-6 md:px-8">
+              <div className="mb-6">
+                <h2 className="text-lg font-normal text-foreground">{currentStep.title}</h2>
+                <p className="mt-1 text-sm text-muted">{currentStep.subtitle}</p>
+              </div>
+              {formFields}
+            </div>
+          </div>
+        </div>
+      </form>
+      <SheetFooter className="flex-col items-stretch border-t sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-xs text-muted">
+          Step {displayedStepNumber} of {totalSteps}
+        </span>
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center">
+          <Button className="w-full sm:w-fit" onClick={handlePrev} variant="outline">
+            Back
+          </Button>
+          <Button
+            onClick={handleNext}
+            isPending={isSubmitting || isValidating}
+            isDisabled={isSubmitting || isValidating}
+            className="w-full sm:w-fit"
+            variant={isFinalStep ? "org" : "outline"}
+          >
+            {isFinalStep ? `${honeyToken ? "Update" : "Create"} Honey Token` : "Next"}
+          </Button>
+        </div>
+      </SheetFooter>
+    </FormProvider>
+  );
+};

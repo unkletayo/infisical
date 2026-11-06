@@ -6,16 +6,18 @@ import { SubscriptionPlan } from "./types";
 
 // import { Workspace } from './types';
 
-const subscriptionKeys = {
-  getOrgSubsription: (orgID: string) => ["plan", { orgID }] as const
+export const subscriptionQueryKeys = {
+  all: () => ["plan"] as const,
+  getOrgSubsription: (orgID: string) => [...subscriptionQueryKeys.all(), { orgID }] as const
 };
 
-const fetchOrgSubscription = async (orgID: string) => {
+export const fetchOrgSubscription = async (orgID: string, refreshCache: boolean = false) => {
   const { data } = await apiRequest.get<{ plan: SubscriptionPlan }>(
-    `/api/v1/organizations/${orgID}/plan`
+    `/api/v1/organizations/${orgID}/plan${refreshCache ? "?refreshCache=true" : ""}`
   );
 
-  return data.plan;
+  const emailDomainVerification = data.plan.samlSSO || data.plan.ldap || data.plan.oidcSSO;
+  return { ...data.plan, emailDomainVerification };
 };
 
 type UseGetOrgSubscriptionProps = {
@@ -24,7 +26,7 @@ type UseGetOrgSubscriptionProps = {
 
 export const useGetOrgSubscription = ({ orgID }: UseGetOrgSubscriptionProps) =>
   useQuery({
-    queryKey: subscriptionKeys.getOrgSubsription(orgID),
+    queryKey: subscriptionQueryKeys.getOrgSubsription(orgID),
     queryFn: () => fetchOrgSubscription(orgID),
     enabled: Boolean(orgID)
   });

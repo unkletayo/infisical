@@ -1,55 +1,44 @@
 ---
-title: "Overview"
-description: "How to use Infisical to inject secrets and configs into various 3-rd party services and frameworks."
+title: "Integrations"
+sidebarTitle: "Overview"
+description: "Delivers secrets to the places that need them."
 ---
 
-Integrations allow environment variables to be synced from Infisical into your local development workflow, CI/CD pipelines, and production infrastructure.
+import { CatalogBrowser } from "/snippets/CatalogBrowser.jsx";
+import { integrations, integrationTypes, integrationBadges } from "/snippets/catalogs/integrations.jsx";
 
-Missing an integration? [Throw in a request](https://github.com/Infisical/infisical/issues).
+A secret in Infisical is only useful once it reaches the process that reads it. There are three types of integrations for delivering secrets, each with its own setup process:
 
-| Integration                                                    | Type                   | Status      |
-| -------------------------------------------------------------- | ---------------------- | ----------- |
-| [Docker](/integrations/platforms/docker)                       | Platform               | Available   |
-| [Docker-Compose](/integrations/platforms/docker-compose)       | Platform               | Available   |
-| [Kubernetes](/integrations/platforms/kubernetes)               | Platform               | Available   |
-| [Terraform](/integrations/frameworks/terraform)                | Infrastructure as code | Available   |
-| [PM2](/integrations/platforms/pm2)                             | Platform               | Available   |
-| [Heroku](/integrations/cloud/heroku)                           | Cloud                  | Available   |
-| [Vercel](/integrations/cloud/vercel)                           | Cloud                  | Available   |
-| [Netlify](/integrations/cloud/netlify)                         | Cloud                  | Available   |
-| [Render](/integrations/cloud/render)                           | Cloud                  | Available   |
-| [Laravel Forge](/integrations/cloud/laravel-forge)             | Cloud                  | Available   |
-| [Railway](/integrations/cloud/railway)                         | Cloud                  | Available   |
-| [Terraform Cloud](/integrations/cloud/terraform-cloud)         | Cloud                  | Available   |
-| [Fly.io](/integrations/cloud/flyio)                            | Cloud                  | Available   |
-| [Supabase](/integrations/cloud/supabase)                       | Cloud                  | Available   |
-| [Northflank](/integrations/cloud/northflank)                   | Cloud                  | Available   |
-| [Cloudflare Pages](/integrations/cloud/cloudflare-pages)       | Cloud                  | Available   |
-| [Checkly](/integrations/cloud/checkly)                         | Cloud                  | Available   |
-| [HashiCorp Vault](/integrations/cloud/hashicorp-vault)         | Cloud                  | Available   |
-| [AWS Parameter Store](/integrations/cloud/aws-parameter-store) | Cloud                  | Available   |
-| [AWS Secret Manager](/integrations/cloud/aws-secret-manager)   | Cloud                  | Available   |
-| [Azure Key Vault](/integrations/cloud/azure-key-vault)         | Cloud                  | Available   |
-| [BitBucket](/integrations/cicd/bitbucket)                      | CI/CD                  | Available   |
-| [Codefresh](/integrations/cicd/codefresh)                      | CI/CD                  | Available   |
-| [GitHub Actions](/integrations/cicd/githubactions)             | CI/CD                  | Available   |
-| [GitLab](/integrations/cicd/gitlab)                            | CI/CD                  | Available   |
-| [CircleCI](/integrations/cicd/circleci)                        | CI/CD                  | Available   |
-| [Travis CI](/integrations/cicd/travisci)                       | CI/CD                  | Available   |
-| [React](/integrations/frameworks/react)                        | Framework              | Available   |
-| [Vue](/integrations/frameworks/vue)                            | Framework              | Available   |
-| [Express](/integrations/frameworks/express)                    | Framework              | Available   |
-| [Next.js](/integrations/frameworks/nextjs)                     | Framework              | Available   |
-| [NestJS](/integrations/frameworks/nestjs)                      | Framework              | Available   |
-| [SvelteKit](/integrations/frameworks/sveltekit)                | Framework              | Available   |
-| [Nuxt](/integrations/frameworks/nuxt)                          | Framework              | Available   |
-| [Gatsby](/integrations/frameworks/gatsby)                      | Framework              | Available   |
-| [Remix](/integrations/frameworks/remix)                        | Framework              | Available   |
-| [Vite](/integrations/frameworks/vite)                          | Framework              | Available   |
-| [Fiber](/integrations/frameworks/fiber)                        | Framework              | Available   |
-| [Django](/integrations/frameworks/django)                      | Framework              | Available   |
-| [Flask](/integrations/frameworks/flask)                        | Framework              | Available   |
-| [Laravel](/integrations/frameworks/laravel)                    | Framework              | Available   |
-| [Ruby on Rails](/integrations/frameworks/rails)                | Framework              | Available   |
-| GCP Secret Manager                                             | Cloud                  | Coming soon |
-| Jenkins                                                        | CI/CD                  | Coming soon |
+- [Frameworks](#frameworks): your application fetches its secrets from Infisical with the Infisical SDK or CLI
+- [Infrastructure](#infrastructure): the platform that runs your workload fetches the secrets and hands them to your application
+- [Secret Syncs](#secret-syncs): Infisical copies secrets into a third-party store, such as AWS Secrets Manager or GitHub
+
+Search all integrations to find the one for your use case:
+
+<CatalogBrowser
+  id="integrations"
+  items={integrations}
+  categories={integrationTypes}
+  filterKey="type"
+  noun="integration"
+  badges={integrationBadges}
+  urlParam="type"
+/>
+
+## Frameworks
+
+A framework integration puts the Infisical SDK or CLI inside your application. The application authenticates with a machine identity, fetches its secrets at startup, and holds them in memory. No secrets land on disk, and any secrets that get rotated will reach the application the next time it starts.
+
+Pick a framework integration when you control the application code and want the shortest path between Infisical and your process.
+
+## Infrastructure
+
+An infrastructure integration moves the fetch one layer out, into whatever runs your workload. That layer authenticates with a machine identity, fetches the secrets, and hands them to your application in a form it already reads, such as environment variables, a file on disk, or the platform's own secret object.
+
+Pick an infrastructure integration when the application code carries no Infisical client, or when you can't change that code at all.
+
+## Secret Syncs
+
+A [Secret Sync](/integrations/secret-syncs/overview) copies secrets from an Infisical project into a third-party store such as AWS Secrets Manager, GitHub, or Vercel. The sync runs over an [App Connection](/integrations/app-connections/overview), and any changes you make to secrets in Infisical will automatically propagate to the integration.
+
+Pick a Secret Sync when your platform reads from its own secret store, or when you're migrating to Infisical and the old store has to stay populated in the meantime.

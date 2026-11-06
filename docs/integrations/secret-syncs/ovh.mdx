@@ -1,0 +1,165 @@
+---
+title: "OVHcloud sync"
+sidebarTitle: "OVHcloud"
+description: "Learn how to configure an OVHcloud sync for Infisical."
+---
+
+**Prerequisites:**
+    - Set up and add secrets to [Infisical Cloud](https://app.infisical.com)
+    - Create an [OVHcloud connection](/integrations/app-connections/ovh)
+
+<Tabs>
+    <Tab title="Infisical UI">
+        <Steps>
+            <Step title="Add Sync">
+                Navigate to **Project** > **Integrations** and select the **Secret Syncs** tab. Select the **Add Sync** button.
+
+                ![Secret Syncs Tab](/images/secret-syncs/general/secret-sync-tab.png)
+            </Step>
+            <Step title="Select OVHcloud">
+                ![Select OVHcloud](/images/secret-syncs/ovh/select-option.png)
+            </Step>
+            <Step title="Configure Source">
+                Configure the **Source** from where secrets should be retrieved, then select **Next**.
+
+                ![Configure Source](/images/secret-syncs/ovh/sync-source.png)
+
+                - **Environment**: the project environment to retrieve secrets from
+                - **Secret Path**: the folder path to retrieve secrets from
+
+                <Tip>
+                    If you need to sync secrets from multiple folder locations, check out [secret imports](/documentation/platform/secret-reference#secret-imports).
+                </Tip>
+            </Step>
+            <Step title="Configure Destination">
+                Configure the **Destination** to where secrets should be deployed.
+
+                ![Configure Destination](/images/secret-syncs/ovh/sync-destination.png)
+
+                - **OVHcloud Connection**: the OVHcloud connection to authenticate with
+                - **Path**: the path in OVHcloud KMS where Infisical stores the secrets as key-value pairs, such as `app/production` (letters, numbers, dots, dashes, underscores, and single slashes between segments)
+
+                After you configure these fields, select **Next** to continue to the **Sync Options** step.
+
+                <Note>
+                    If the path you enter doesn't exist in OVHcloud KMS, Infisical creates it.
+                </Note>
+                <Note>
+                    Infisical stores all the secrets under the selected source path as key-value pairs in one OVHcloud KMS secret at the destination path. OVHcloud KMS limits each secret to 64 KB (total JSON payload), so keep the combined size of all synced secrets within that limit.
+                </Note>
+            </Step>
+            <Step title="Configure Sync Options">
+                Configure the **Sync Options** to specify how secrets should be synced, then select **Next**.
+
+                ![Configure Options](/images/secret-syncs/ovh/sync-options.png)
+
+                - **Initial Sync Behavior**: how Infisical resolves the initial sync
+                    - **Overwrite Destination Secrets**: removes any secrets at the destination endpoint that aren't in Infisical
+                    - **Import Secrets (Prioritize Infisical)**: imports secrets from the destination endpoint before syncing, and keeps the Infisical value when keys conflict
+                    - **Import Secrets (Prioritize OVHcloud)**: imports secrets from the destination endpoint before syncing, and keeps the OVHcloud value when keys conflict
+                - **Key Schema**: a template for how secret names are transformed when syncing, with `{{secretKey}}` as a placeholder for the original secret name and `{{environment}}` for the environment
+                <Note>
+                    We highly recommend using a Key Schema to ensure that Infisical only manages the specific keys you intend, keeping everything else untouched.
+                </Note>
+                - **Auto-Sync Enabled**: if enabled, Infisical syncs secrets from the source location automatically when they change (disable it to sync manually only)
+                - **Disable Secret Deletion**: if enabled, Infisical doesn't remove secrets from the sync destination (enable it if you manage some secrets manually outside of Infisical)
+            </Step>
+            <Step title="Configure Details">
+                Configure the **Details** of your OVHcloud sync, then select **Next**.
+
+                ![Configure Details](/images/secret-syncs/ovh/sync-details.png)
+
+                - **Name**: the name of your sync, which must be slug-friendly
+                - **Description**: an optional description for your sync
+            </Step>
+            <Step title="Review Configuration">
+                Review your OVHcloud sync configuration, then select **Create Sync**.
+
+                ![Confirm Configuration](/images/secret-syncs/ovh/sync-review.png)
+            </Step>
+            <Step title="Sync Created">
+                If the sync is enabled, your OVHcloud sync starts syncing your secrets to the destination endpoint.
+
+                ![Sync Created](/images/secret-syncs/ovh/sync-created.png)
+            </Step>
+        </Steps>
+    </Tab>
+    <Tab title="API">
+        To create an OVHcloud sync, send a request to the [Create OVHcloud Sync](/api-reference/endpoints/secret-syncs/ovh/create) endpoint.
+
+        ### Sample request
+
+        ```bash Request
+        curl    --request POST \
+                --url https://app.infisical.com/api/v1/secret-syncs/ovh \
+                --header 'Authorization: Bearer <your-infisical-access-token>' \
+                --header 'Content-Type: application/json' \
+                --data '{
+                    "name": "my-ovh-sync",
+                    "projectId": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
+                    "description": "an example sync",
+                    "connectionId": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
+                    "environment": "dev",
+                    "secretPath": "/",
+                    "isEnabled": true,
+                    "syncOptions": {
+                        "initialSyncBehavior": "overwrite-destination"
+                    },
+                    "destinationConfig": {
+                        "path": "app/production"
+                    }
+                }'
+        ```
+
+        ### Sample response
+
+        ```bash Response
+        {
+            "secretSync": {
+                "id": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
+                "name": "my-ovh-sync",
+                "description": "an example sync",
+                "isEnabled": true,
+                "version": 1,
+                "folderId": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
+                "connectionId": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
+                "createdAt": "2026-04-23T10:15:00.000Z",
+                "updatedAt": "2026-04-23T10:15:00.000Z",
+                "syncStatus": "succeeded",
+                "lastSyncJobId": "123",
+                "lastSyncMessage": null,
+                "lastSyncedAt": "2026-04-23T10:15:00.000Z",
+                "importStatus": null,
+                "lastImportJobId": null,
+                "lastImportMessage": null,
+                "lastImportedAt": null,
+                "removeStatus": null,
+                "lastRemoveJobId": null,
+                "lastRemoveMessage": null,
+                "syncOptions": {
+                    "initialSyncBehavior": "overwrite-destination"
+                },
+                "projectId": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
+                "connection": {
+                    "app": "ovh",
+                    "name": "my-ovh-connection",
+                    "id": "3c90c3cc-0d44-4b50-8888-8dd25736052a"
+                },
+                "environment": {
+                    "slug": "dev",
+                    "name": "Development",
+                    "id": "3c90c3cc-0d44-4b50-8888-8dd25736052a"
+                },
+                "folder": {
+                    "id": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
+                    "path": "/"
+                },
+                "destination": "ovh",
+                "destinationConfig": {
+                    "path": "app/production"
+                }
+            }
+        }
+        ```
+    </Tab>
+</Tabs>

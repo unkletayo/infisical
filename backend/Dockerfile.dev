@@ -1,0 +1,132 @@
+ARG INFISICAL_CLI_VERSION=0.44.12
+
+FROM debian:trixie-slim AS oracle
+RUN apt-get update && apt-get install -y --no-install-recommends unzip wget ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Own stage so the 127 MB fetch caches independently and runs in parallel. Better
+# still would be mirroring the zip on artifacts-cli.infisical.com, which drops the
+# third-party CDN dependency instead of retrying around it.
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        ORACLE_ZIP="instantclient-basic-linux.x64-23.26.0.0.0.zip" && \
+        EXPECTED_SHA="d6c79cbcf0ff209363e779855c690d4fc730aed847e9198a2c439bcf34760af5"; \
+    elif [ "$ARCH" = "arm64" ]; then \
+        ORACLE_ZIP="instantclient-basic-linux.arm64-23.26.0.0.0.zip" && \
+        EXPECTED_SHA="9c9a32051e97f087016fb334b7ad5c0aea8511ca8363afd8e0dc6ec4fc515c32"; \
+    else \
+        echo "Unsupported architecture: $ARCH" >&2 && exit 1; \
+    fi && \
+    ORACLE_URL="https://download.oracle.com/otn_software/linux/instantclient/2326000/${ORACLE_ZIP}" && \
+    wget -q "$ORACLE_URL" && \
+    echo "$EXPECTED_SHA  $ORACLE_ZIP" | sha256sum -c - && \
+    mkdir -p /opt/oracle && \
+    unzip -q "$ORACLE_ZIP" -d /opt/oracle && \
+    rm "$ORACLE_ZIP"
+
+# Compilers for SoftHSM2 and OpenSSL live only in these stages; the dev image gets the
+# installed output, not the sources, object files or autotools.
+FROM node:26.12.1-trixie-slim AS native-tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    autoconf \
+    automake \
+    libtool \
+    pkg-config \
+    libssl-dev \
+    perl \
+    git \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ? Setup a test SoftHSM module. In production a real HSM is used.
+FROM native-tools AS softhsm
+ARG SOFTHSM2_VERSION=2.5.0
+RUN git clone --depth 1 --branch ${SOFTHSM2_VERSION} https://github.com/opendnssec/SoftHSMv2.git /tmp/softhsm2 \
+    && cd /tmp/softhsm2 \
+    && sh autogen.sh \
+    && ./configure --prefix=/usr/local --disable-gost \
+    && make -j"$(nproc)" \
+    && make install DESTDIR=/out
+
+# OpenSSL 3.5.9 for PQC (ML-DSA / SLH-DSA) certificate support.
+FROM native-tools AS openssl-pqc
+WORKDIR /tmp/openssl-pqc-build
+RUN wget -q https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz \
+    && echo "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a  openssl-3.5.9.tar.gz" | sha256sum -c - \
+    && tar -xf openssl-3.5.9.tar.gz \
+    && cd openssl-3.5.9 \
+    && ./Configure --prefix=/opt/openssl-pqc --openssldir=/opt/openssl-pqc/ssl no-docs \
+    && make -j"$(nproc)" \
+    && make install_sw
+
+FROM node:26.12.1-trixie-slim
+
+ARG SOFTHSM2_VERSION=2.5.0
+ENV SOFTHSM2_VERSION=${SOFTHSM2_VERSION}
+
+# python3, make and g++ stay because npm compiles native modules (pkcs11js, odbc, re2, ...)
+# in this image. ca-certificates is listed because --no-install-recommends drops it.
+ARG INFISICAL_CLI_VERSION
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    python3 \
+    make \
+    g++ \
+    git \
+    openssh-client \
+    openssl \
+    curl \
+    libaio1t64 \
+    unixodbc \
+    unixodbc-dev \
+    freetds-dev \
+    freetds-bin \
+    tdsodbc \
+    opensc \
+    smbclient \
+    && curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | bash \
+    && test -n "$INFISICAL_CLI_VERSION" \
+    && apt-get update && apt-get install -y --no-install-recommends infisical="$INFISICAL_CLI_VERSION" \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create libaio symlink for Oracle Instant Client
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "arm64" ]; then \
+      ln -sf /lib/aarch64-linux-gnu/libaio.so.1t64 /lib/aarch64-linux-gnu/libaio.so.1; \
+    else \
+      ln -sf /lib/x86_64-linux-gnu/libaio.so.1t64 /lib/x86_64-linux-gnu/libaio.so.1; \
+    fi
+
+# The driver lives under the architecture's multiarch directory, so read its path from the package.
+RUN TDS_DRIVER="$(dpkg -L tdsodbc | grep '/odbc/libtdsodbc\.so$')" \
+    && test -f "$TDS_DRIVER" \
+    && printf "[FreeTDS]\nDescription = FreeTDS Driver\nDriver = %s\nSetup = %s\nFileUsage = 1\n" "$TDS_DRIVER" "$TDS_DRIVER" > /etc/odbcinst.ini
+
+COPY --from=softhsm /out/usr/local /usr/local
+COPY --from=openssl-pqc /opt/openssl-pqc /opt/openssl-pqc
+
+# Oracle Instant Client for OracleDB mTLS (Wallet) support
+COPY --from=oracle /opt/oracle /opt/oracle
+RUN echo /opt/oracle/instantclient_23_26 > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
+
+# ? App setup
+
+WORKDIR /app
+
+COPY package.json package.json
+COPY package-lock.json package-lock.json
+
+COPY dev-entrypoint.sh dev-entrypoint.sh
+RUN chmod +x dev-entrypoint.sh
+
+# The cache mount keeps npm's download cache (about 400 MB) out of the image.
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+COPY . .
+
+ENV HOST=0.0.0.0
+
+ENTRYPOINT ["/app/dev-entrypoint.sh"]
+CMD ["npm", "run", "dev:docker"]

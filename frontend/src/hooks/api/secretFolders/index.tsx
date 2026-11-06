@@ -2,7 +2,8 @@ export {
   useCreateFolder,
   useDeleteFolder,
   useGetFoldersByEnv,
+  useGetOrCreateFolder,
   useGetProjectFolders,
-  useGetProjectFoldersBatch,
+  useMoveFolder,
   useUpdateFolder
 } from "./queries";

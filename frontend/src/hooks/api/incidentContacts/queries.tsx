@@ -8,18 +8,16 @@ const incidentContactKeys = {
   getAllContact: (orgId: string) => ["org-incident-contacts", { orgId }] as const
 };
 
-const fetchOrgIncidentContacts = async (orgId: string) => {
-  const { data } = await apiRequest.get<{ incidentContactsOrg: IncidentContact[] }>(
-    `/api/v1/organization/${orgId}/incidentContactOrg`
-  );
-
-  return data.incidentContactsOrg;
-};
-
 export const useGetOrgIncidentContact = (orgId: string) =>
   useQuery({
     queryKey: incidentContactKeys.getAllContact(orgId),
-    queryFn: () => fetchOrgIncidentContacts(orgId),
+    queryFn: async () => {
+      const { data } = await apiRequest.get<{ incidentContactsOrg: IncidentContact[] }>(
+        `/api/v1/organization/${orgId}/incidentContactOrg`
+      );
+
+      return data.incidentContactsOrg;
+    },
     enabled: Boolean(orgId)
   });
 
@@ -27,7 +25,7 @@ export const useGetOrgIncidentContact = (orgId: string) =>
 export const useAddIncidentContact = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, AddIncidentContactDTO>({
+  return useMutation<object, object, AddIncidentContactDTO>({
     mutationFn: async ({ orgId, email }) => {
       const { data } = await apiRequest.post(`/api/v1/organization/${orgId}/incidentContactOrg`, {
         email
@@ -35,7 +33,7 @@ export const useAddIncidentContact = () => {
       return data;
     },
     onSuccess: (_, { orgId }) => {
-      queryClient.invalidateQueries(incidentContactKeys.getAllContact(orgId));
+      queryClient.invalidateQueries({ queryKey: incidentContactKeys.getAllContact(orgId) });
     }
   });
 };
@@ -43,15 +41,15 @@ export const useAddIncidentContact = () => {
 export const useDeleteIncidentContact = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, DeleteIncidentContactDTO>({
-    mutationFn: async ({ orgId, email }) => {
-      const { data } = await apiRequest.delete(`/api/v1/organization/${orgId}/incidentContactOrg`, {
-        data: { email }
-      });
+  return useMutation<object, object, DeleteIncidentContactDTO>({
+    mutationFn: async ({ orgId, incidentContactId }) => {
+      const { data } = await apiRequest.delete(
+        `/api/v1/organization/${orgId}/incidentContactOrg/${incidentContactId}`
+      );
       return data;
     },
     onSuccess: (_, { orgId }) => {
-      queryClient.invalidateQueries(incidentContactKeys.getAllContact(orgId));
+      queryClient.invalidateQueries({ queryKey: incidentContactKeys.getAllContact(orgId) });
     }
   });
 };

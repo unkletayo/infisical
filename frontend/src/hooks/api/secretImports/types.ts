@@ -1,56 +1,96 @@
-import { EncryptedSecret } from "../secrets/types";
-import { UserWsKeyPair } from "../types";
+import { ProjectEnv } from "../projects/types";
+import { SecretV3Raw } from "../secrets/types";
 
-export type TSecretImports = {
-  _id: string;
-  workspaceId: string;
-  environment: string;
+export type TSecretImport = {
+  id: string;
   folderId: string;
-  imports: Array<{ environment: string; secretPath: string }>;
+  importPath: string;
+  importEnv: ProjectEnv & { projectId?: string };
+  position: string;
   createdAt: string;
   updatedAt: string;
+  isReserved?: boolean;
+  isReplication?: boolean;
+  isReplicationSuccess?: boolean;
+  replicationStatus?: string;
+  lastReplicated?: string;
+  environment?: string;
+  sourceProjectName?: string;
+  isAccessRevoked?: boolean;
+};
+
+export type TGetImportedFoldersByEnvDTO = {
+  projectId: string;
+  environment: string;
+  path?: string;
 };
 
 export type TImportedSecrets = {
   environment: string;
+  environmentInfo: ProjectEnv;
   secretPath: string;
   folderId: string;
-  secrets: EncryptedSecret[];
-}[];
+  secrets: Omit<SecretV3Raw, "secretValue">[];
+};
+
+export type TGetSecretImports = {
+  projectId: string;
+  environment: string;
+  path?: string;
+};
+
+export type TGetSecretImportsAllEnvs = {
+  projectId: string;
+  path?: string;
+  environments: string[];
+};
 
 export type TGetImportedSecrets = {
-  workspaceId: string;
+  projectId: string;
   environment: string;
-  folderId?: string;
-  decryptFileKey: UserWsKeyPair;
+  path?: string;
+};
+
+export type TuseGetImportedFoldersByEnv = {
+  environments: string[];
+  projectId: string;
+  path?: string;
 };
 
 export type TCreateSecretImportDTO = {
-  workspaceId: string;
+  projectId: string;
   environment: string;
-  folderId?: string;
-  secretImport: {
+  path?: string;
+  import: {
+    sourceProjectId?: string;
     environment: string;
-    secretPath: string;
+    path: string;
   };
+  isReplication?: boolean;
 };
 
 export type TUpdateSecretImportDTO = {
   id: string;
-  workspaceId: string;
+  projectId: string;
   environment: string;
-  folderId?: string;
-  secretImports: Array<{
+  path?: string;
+  import: Partial<{
     environment: string;
-    secretPath: string;
+    path: string;
+    position: number;
   }>;
+};
+
+export type TResyncSecretReplicationDTO = {
+  id: string;
+  projectId: string;
+  environment: string;
+  path?: string;
 };
 
 export type TDeleteSecretImportDTO = {
   id: string;
-  workspaceId: string;
+  projectId: string;
   environment: string;
-  folderId?: string;
-  secretImportPath: string;
-  secretImportEnv: string;
+  path?: string;
 };

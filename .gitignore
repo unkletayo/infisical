@@ -1,11 +1,12 @@
 # backend
 node_modules
 .env
+.env.test
 .env.dev
 .env.gamma
 .env.prod
 .env.infisical
-
+.env.migration
 *~
 *.swp
 *.swo
@@ -22,6 +23,7 @@ node_modules
 
 # dependencies
 /node_modules
+/.pnpm-store/
 /.pnp
 .pnp.js
 
@@ -33,7 +35,7 @@ reports
 junit.xml
 
 # next.js
-/.next/
+.next/
 /out/
 
 # production
@@ -56,4 +58,28 @@ yarn-error.log*
 .env.infisical
 
 # Infisical init
+.infisical.yaml
 .infisical.json
+
+.infisicalignore
+
+# Editor specific
+.vscode/*
+.idea/*
+.claude/
+
+frontend-build
+
+*.tgz
+cli/infisical-merge
+cli/test/infisical-merge
+/backend/binary
+backend/bdd/.bdd-infisical-bootstrap-result.json
+upgrade-impact/.local-output/
+
+/npm/bin
+__pycache__
+
+# Local Codex design QA artifacts
+/.design-qa/
+/design-qa.md

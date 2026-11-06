@@ -1,19 +1,37 @@
 export {
+  useAddUserToWsNonE2EE,
+  useRemoveMyDuplicateAccounts,
+  useRequestEmailChangeOTP,
+  useRevokeMySessionById,
+  useSendEmailVerificationCode,
+  useUpdateUserEmail,
+  useVerifyCurrentEmailOTP
+} from "./mutation";
+export {
   fetchOrgUsers,
-  useAddUserToOrg,
-  useAddUserToWs,
-  useCreateAPIKey,
-  useDeleteAPIKey,
+  useActivateMfa,
+  useAddUsersToOrg,
+  useDeleteMe,
   useDeleteOrgMembership,
-  useGetMyAPIKeys,
+  useEnrollMfa,
+  useGetMyDuplicateAccount,
   useGetMyIp,
+  useGetMyOrganizationProjects,
   useGetMySessions,
+  useGetOrgMembership,
+  useGetOrgMembershipProjectMemberships,
+  useGetOrgUserAccess,
   useGetOrgUsers,
   useGetUser,
   useGetUserAction,
+  useGetUserTotpConfiguration,
+  useGetUserTotpRegistration,
+  useListUserGroupMemberships,
   useLogoutUser,
   useRegisterUserAction,
+  useRenameUser,
   useRevokeMySessions,
-  useUpdateOrgUserRole,
-  useUpdateUserAuthProvider
+  useUpdateOrgMembership,
+  useUpdateUserAuthMethods
 } from "./queries";
+export { userKeys } from "./query-keys";

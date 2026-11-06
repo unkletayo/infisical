@@ -1,0 +1,58 @@
+import { useEffect, useRef } from "react";
+
+import SecurityClient from "@app/components/utilities/SecurityClient";
+import { MfaMethod } from "@app/hooks/api/auth/types";
+import { getMfaTempToken } from "@app/hooks/api/reactQuery";
+
+import { MFA_METHOD_LABELS, VerifyStep } from "./setup";
+
+type Props = {
+  method: MfaMethod;
+  onComplete: () => void | Promise<void>;
+  onUseRecoveryCode: () => void;
+};
+
+// Guided factor setup shown at login when an org enforces MFA but the user has not
+// yet configured the required method (e.g. right after signup). It only enrolls the
+// factor (proves and persists it). It deliberately does NOT enable MFA or mint
+// recovery codes: those happen when the user completes the org MFA challenge next
+// (verifyMfaToken), so a pre-MFA session can never bootstrap recovery codes.
+export const MfaEnrollment = ({ method, onComplete, onUseRecoveryCode }: Props) => {
+  const hasPrepared = useRef(false);
+
+  useEffect(() => {
+    if (hasPrepared.current) return;
+    hasPrepared.current = true;
+
+    SecurityClient.setMfaToken("");
+  }, []);
+
+  const handleVerified = async () => {
+    SecurityClient.setMfaToken(getMfaTempToken());
+    await onComplete();
+  };
+
+  return (
+    <div className="mx-auto flex w-full max-w-md flex-col gap-5 pt-4 pb-4">
+      <div className="text-center">
+        <h2 className="text-xl font-normal text-foreground">Set up two-factor authentication</h2>
+        <p className="mt-2 text-sm text-muted">
+          Your organization requires {MFA_METHOD_LABELS[method]} to be configured.
+        </p>
+      </div>
+
+      <VerifyStep method={method} onVerified={handleVerified} />
+
+      <p className="text-center text-sm text-muted">
+        Can&apos;t access your other two-factor method?{" "}
+        <button
+          type="button"
+          onClick={onUseRecoveryCode}
+          className="cursor-pointer text-foreground/95 underline decoration-project/60 underline-offset-2 transition-colors duration-200 hover:decoration-project"
+        >
+          Use a recovery code
+        </button>
+      </p>
+    </div>
+  );
+};

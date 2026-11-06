@@ -1,81 +1,153 @@
+import type { RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AxiosError } from "axios";
 
-import {
-  decryptAssymmetric,
-  encryptAssymmetric
-} from "@app/components/utilities/cryptography/crypto";
 import { apiRequest } from "@app/config/request";
-import { setAuthToken } from "@app/reactQuery";
+import { SessionStorageKeys } from "@app/const";
+import { getMfaStepUpChallenge } from "@app/helpers/mfaSession";
+import { adminQueryKeys } from "@app/hooks/api/admin/queries";
+import { getAuthToken, queryClient as qc } from "@app/hooks/api/reactQuery";
 
-import { useUploadWsKey } from "../keys/queries";
+import { authKeys } from "../auth/queries";
+import { MfaMethod } from "../auth/types";
+import { TGroupWithProjectMemberships } from "../groups/types";
+import { setAuthToken } from "../reactQuery";
+import { subscriptionQueryKeys } from "../subscriptions/queries";
+import { webAuthnKeys } from "../webauthn/queries";
+import { userKeys } from "./query-keys";
 import {
   AddUserToOrgDTO,
-  AddUserToWsDTO,
-  AddUserToWsRes,
-  APIKeyData,
-  CreateAPIKeyRes,
-  DeletOrgMembershipDTO,
+  AuthMethod,
+  DeleteOrgMembershipBatchDTO,
+  DeleteOrgMembershipDTO,
   OrgUser,
   RenameUserDTO,
   TokenVersion,
-  UpdateOrgUserRoleDTO,
-  User} from "./types";
-
-const userKeys = {
-  getUser: ["user"] as const,
-  userAction: ["user-action"] as const,
-  getOrgUsers: (orgId: string) => [{ orgId }, "user"],
-  myIp: ["ip"] as const,
-  myAPIKeys: ["api-keys"] as const,
-  mySessions: ["sessions"] as const
-};
+  TOrgUserAccess,
+  TWorkspaceUser,
+  UpdateOrgMembershipDTO,
+  User,
+  UserEnc
+} from "./types";
 
 export const fetchUserDetails = async () => {
-  const { data } = await apiRequest.get<{ user: User }>("/api/v1/user");
+  // prioritize auth token
+  const authToken = getAuthToken();
 
+  const { data } = await apiRequest.get<{ user: User & UserEnc }>("/api/v1/user", {
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined
+  });
   return data.user;
 };
 
-export const useGetUser = () => useQuery(userKeys.getUser, fetchUserDetails);
+export const useGetUser = () =>
+  useQuery({
+    queryKey: userKeys.getUser,
+    queryFn: fetchUserDetails
+  });
 
-const fetchUserAction = async (action: string) => {
+export const fetchUserDuplicateAccounts = async () => {
+  const { data } = await apiRequest.get<{
+    users: Array<
+      User & {
+        isMyAccount: boolean;
+        organizations: { name: string; slug: string }[];
+        devices: {
+          ip: string;
+          userAgent: string;
+        }[];
+      }
+    >;
+  }>("/api/v1/user/duplicate-accounts");
+  return data.users;
+};
+
+export const useGetMyDuplicateAccount = () =>
+  useQuery({
+    queryKey: userKeys.getMyDuplicateAccount,
+    staleTime: 60 * 1000, // 1 min in ms
+    queryFn: fetchUserDuplicateAccounts,
+    select: (users) => ({
+      duplicateAccounts: users.filter((el) => !el.isMyAccount),
+      myAccount: users?.find((el) => el.isMyAccount)
+    })
+  });
+
+export const useDeleteMe = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const {
+        data: { user }
+      } = await apiRequest.delete<{ user: User }>("/api/v2/users/me");
+      return user;
+    },
+    onSuccess: () => {
+      localStorage.removeItem("protectedKey");
+      localStorage.removeItem("protectedKeyIV");
+      localStorage.removeItem("protectedKeyTag");
+      localStorage.removeItem("publicKey");
+      localStorage.removeItem("encryptedPrivateKey");
+      localStorage.removeItem("iv");
+      localStorage.removeItem("tag");
+      localStorage.removeItem("PRIVATE_KEY");
+      localStorage.removeItem("orgData.id");
+
+      setAuthToken("");
+
+      queryClient.clear();
+    }
+  });
+};
+
+export const fetchUserAction = async (action: string) => {
   const { data } = await apiRequest.get<{ userAction: string }>("/api/v1/user-action", {
     params: {
       action
     }
   });
-  return data.userAction;
+  return data.userAction || "";
+};
+
+export const fetchUserProjectFavorites = async (orgId: string) => {
+  const { data } = await apiRequest.get<{ projectFavorites: string[] }>(
+    `/api/v1/user/me/project-favorites?orgId=${orgId}`
+  );
+
+  return data.projectFavorites;
 };
 
 export const useRenameUser = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, RenameUserDTO>({
+  return useMutation<object, object, RenameUserDTO>({
     mutationFn: ({ newName }) =>
-      apiRequest.patch("/api/v2/users/me/name", { firstName: newName?.split(" ")[0], lastName: newName?.split(" ").slice(1).join(" ") }),
+      apiRequest.patch("/api/v2/users/me/name", {
+        firstName: newName?.split(" ")[0],
+        lastName: newName?.split(" ").slice(1).join(" ")
+      }),
     onSuccess: () => {
-      queryClient.invalidateQueries(userKeys.getUser);
+      queryClient.invalidateQueries({ queryKey: userKeys.getUser });
     }
   });
 };
 
-export const useUpdateUserAuthProvider = () => {
+export const useUpdateUserAuthMethods = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({
-      authProvider
-    }: {
-      authProvider: string;
-    }) => {
-      const { data: { user } } = await apiRequest.patch("/api/v2/users/me/auth-provider", { 
-        authProvider
+    mutationFn: async ({ authMethods }: { authMethods: AuthMethod[] }) => {
+      const {
+        data: { user }
+      } = await apiRequest.put("/api/v2/users/me/auth-methods", {
+        authMethods
       });
-      
+
       return user;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(userKeys.getUser);
+      queryClient.invalidateQueries({ queryKey: userKeys.getUser });
     }
   });
 };
@@ -94,215 +166,371 @@ export const fetchOrgUsers = async (orgId: string) => {
   return data.users;
 };
 
-export const useGetOrgUsers = (orgId: string) =>
+export const useGetUserProjectFavorites = (orgId: string) =>
+  useQuery({
+    queryKey: userKeys.userProjectFavorites(orgId),
+    queryFn: () => fetchUserProjectFavorites(orgId)
+  });
+
+export const useGetOrgUsers = (orgId: string, options?: { enabled?: boolean }) =>
   useQuery({
     queryKey: userKeys.getOrgUsers(orgId),
     queryFn: () => fetchOrgUsers(orgId),
+    enabled: Boolean(orgId) && (options?.enabled ?? true)
+  });
+
+export const useGetOrgUserAccess = (orgId: string) =>
+  useQuery({
+    queryKey: userKeys.getOrgUserAccess(orgId),
+    queryFn: async () => {
+      const { data } = await apiRequest.get<{ users: TOrgUserAccess[] }>(
+        `/api/v1/organization/${orgId}/user-access`
+      );
+      return data.users;
+    },
     enabled: Boolean(orgId)
   });
 
 // mutation
-export const useAddUserToWs = () => {
-  const uploadWsKey = useUploadWsKey();
+// TODO(akhilmhdh): move all mutation to mutation file
+export const useAddUsersToOrg = () => {
+  const queryClient = useQueryClient();
+  type Response = {
+    data: {
+      message: string;
+      completeInviteLinks?: {
+        email: string;
+        link: string;
+      }[];
+      /** Product-access grants are best-effort; present only when at least one grant failed. */
+      grantFailures?: {
+        projectIds: string[];
+        pamAccess: boolean;
+      };
+    };
+  };
 
-  return useMutation<{ data: AddUserToWsRes }, {}, AddUserToWsDTO>({
-    mutationFn: ({ email, workspaceId }) =>
-      apiRequest.post(`/api/v1/workspace/${workspaceId}/invite-signup`, { email }),
-    onSuccess: ({ data }, { workspaceId }) => {
-      const PRIVATE_KEY = localStorage.getItem("PRIVATE_KEY");
-      if (!PRIVATE_KEY) return;
-
-      // assymmetrically decrypt symmetric key with local private key
-      const key = decryptAssymmetric({
-        ciphertext: data.latestKey.encryptedKey,
-        nonce: data.latestKey.nonce,
-        publicKey: data.latestKey.sender.publicKey,
-        privateKey: PRIVATE_KEY
+  return useMutation<Response, object, AddUserToOrgDTO>({
+    mutationFn: (dto) => {
+      return apiRequest.post("/api/v1/invite-org/signup", dto);
+    },
+    onSuccess: (_, { organizationId }) => {
+      queryClient.invalidateQueries({ queryKey: userKeys.getOrgUsers(organizationId) });
+      queryClient.invalidateQueries({
+        queryKey: subscriptionQueryKeys.getOrgSubsription(organizationId)
       });
-
-      const { ciphertext: inviteeCipherText, nonce: inviteeNonce } = encryptAssymmetric({
-        plaintext: key,
-        publicKey: data.invitee.publicKey,
-        privateKey: PRIVATE_KEY
-      });
-
-      uploadWsKey.mutate({
-        encryptedKey: inviteeCipherText,
-        nonce: inviteeNonce,
-        userId: data.invitee._id,
-        workspaceId
-      });
+      queryClient.invalidateQueries({ queryKey: ["available-users"] });
     }
   });
 };
 
-export const useAddUserToOrg = () => {
-  const queryClient = useQueryClient();
-  type Response  = {
-    data: {
-      message: string, 
-      completeInviteLink: string | undefined
-    }
-  }
+export const useGetOrgMembership = (organizationId: string, orgMembershipId: string) => {
+  return useQuery({
+    queryKey: userKeys.getOrgMembership(organizationId, orgMembershipId),
+    queryFn: async () => {
+      const {
+        data: { membership }
+      } = await apiRequest.get<{ membership: OrgUser }>(
+        `/api/v2/organizations/${organizationId}/memberships/${orgMembershipId}`
+      );
 
-  return useMutation<Response, {}, AddUserToOrgDTO>({
-    mutationFn: (dto) => apiRequest.post("/api/v1/invite-org/signup", dto),
-    onSuccess: (_, { organizationId }) => {
-      queryClient.invalidateQueries(userKeys.getOrgUsers(organizationId));
-    }
+      return membership;
+    },
+    enabled: Boolean(organizationId) && Boolean(orgMembershipId)
+  });
+};
+
+export const useGetOrgMembershipProjectMemberships = (
+  organizationId: string,
+  orgMembershipId: string
+) => {
+  return useQuery({
+    queryKey: userKeys.forOrgMembershipProjectMemberships(organizationId, orgMembershipId),
+    queryFn: async () => {
+      const {
+        data: { memberships }
+      } = await apiRequest.get<{ memberships: TWorkspaceUser[] }>(
+        `/api/v2/organizations/${organizationId}/memberships/${orgMembershipId}/project-memberships`
+      );
+
+      return memberships;
+    },
+    enabled: Boolean(organizationId) && Boolean(orgMembershipId)
   });
 };
 
 export const useDeleteOrgMembership = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, DeletOrgMembershipDTO>({
-    mutationFn: ({ membershipId, orgId }) =>
-      apiRequest.delete(`/api/v2/organizations/${orgId}/memberships/${membershipId}`),
+  return useMutation<object, object, DeleteOrgMembershipDTO>({
+    mutationFn: ({ membershipId, orgId }) => {
+      return apiRequest.delete(`/api/v2/organizations/${orgId}/memberships/${membershipId}`);
+    },
     onSuccess: (_, { orgId }) => {
-      queryClient.invalidateQueries(userKeys.getOrgUsers(orgId));
+      queryClient.invalidateQueries({ queryKey: userKeys.getOrgUsers(orgId) });
     }
   });
 };
 
-export const useUpdateOrgUserRole = () => {
+export const useDeleteOrgMembershipBatch = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, UpdateOrgUserRoleDTO>({
-    mutationFn: ({ organizationId, membershipId, role }) =>
-      apiRequest.patch(`/api/v2/organizations/${organizationId}/memberships/${membershipId}`, {
-        role
-      }),
-    onSuccess: (_, { organizationId }) => {
-      queryClient.invalidateQueries(userKeys.getOrgUsers(organizationId));
+  return useMutation<object, object, DeleteOrgMembershipBatchDTO>({
+    mutationFn: ({ membershipIds, orgId }) => {
+      return apiRequest.delete(`/api/v2/organizations/${orgId}/memberships`, {
+        data: {
+          membershipIds
+        }
+      });
+    },
+    onSuccess: (_, { orgId }) => {
+      queryClient.invalidateQueries({ queryKey: userKeys.getOrgUsers(orgId) });
+    }
+  });
+};
+
+export const useUpdateOrgMembership = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation<object, object, UpdateOrgMembershipDTO>({
+    mutationFn: ({ organizationId, membershipId, role, isActive, metadata }) => {
+      return apiRequest.patch(
+        `/api/v2/organizations/${organizationId}/memberships/${membershipId}`,
+        {
+          role,
+          isActive,
+          metadata
+        }
+      );
+    },
+    onSuccess: (_, { organizationId, membershipId }) => {
+      queryClient.invalidateQueries({ queryKey: userKeys.getOrgUsers(organizationId) });
+      queryClient.invalidateQueries({
+        queryKey: userKeys.getOrgMembership(organizationId, membershipId)
+      });
     },
     // to remove old states
-    onError: (_, { organizationId }) => {
-      queryClient.invalidateQueries(userKeys.getOrgUsers(organizationId));
+    onError: (_, { organizationId, membershipId }) => {
+      queryClient.invalidateQueries({ queryKey: userKeys.getOrgUsers(organizationId) });
+      queryClient.invalidateQueries({
+        queryKey: userKeys.getOrgMembership(organizationId, membershipId)
+      });
     }
   });
 };
 
 export const useRegisterUserAction = () => {
   const queryClient = useQueryClient();
-  return useMutation<{}, {}, string>({
+  return useMutation<object, object, string>({
     mutationFn: (action) => apiRequest.post("/api/v1/user-action", { action }),
     onSuccess: () => {
-      queryClient.invalidateQueries(userKeys.userAction);
+      queryClient.invalidateQueries({ queryKey: userKeys.userAction });
     }
   });
 };
 
-export const useLogoutUser = () =>
-  useMutation({
-    mutationFn: () => apiRequest.post("/api/v1/auth/logout"),
-    onSuccess: () => {
+export const logoutUser = async () => {
+  await apiRequest.post("/api/v1/auth/logout");
+};
+
+// Utility function to clear session storage and query cache
+export const clearSession = () => {
+  const serverConfig = qc.getQueryData(adminQueryKeys.serverConfig());
+
+  setAuthToken(""); // Clear authentication token
+  localStorage.removeItem("protectedKey");
+  localStorage.removeItem("protectedKeyIV");
+  localStorage.removeItem("protectedKeyTag");
+  localStorage.removeItem("publicKey");
+  localStorage.removeItem("encryptedPrivateKey");
+  localStorage.removeItem("iv");
+  localStorage.removeItem("tag");
+  localStorage.removeItem("PRIVATE_KEY");
+  localStorage.removeItem("orgData.id");
+  sessionStorage.removeItem(SessionStorageKeys.CLI_TERMINAL_TOKEN);
+
+  qc.clear();
+
+  // Server configuration is public and required to render authentication routes.
+  // Preserve it so delayed logout cleanup cannot suspend and remount the login page.
+  if (serverConfig !== undefined) {
+    qc.setQueryData(adminQueryKeys.serverConfig(), serverConfig);
+  }
+};
+
+let logoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+export const useLogoutUser = () => {
+  return useMutation({
+    mutationFn: async () => {
+      if (logoutTimer) {
+        clearTimeout(logoutTimer);
+        logoutTimer = null;
+      }
       setAuthToken("");
-      // Delete the cookie by not setting a value; Alternatively clear the local storage
-      localStorage.setItem("publicKey", "");
-      localStorage.setItem("encryptedPrivateKey", "");
-      localStorage.setItem("iv", "");
-      localStorage.setItem("tag", "");
-      localStorage.setItem("PRIVATE_KEY", "");
+      // Remove the login check cache immediately so the restrict-login-signup
+      // middleware doesn't find stale auth data and redirect to select-organization.
+      qc.removeQueries({ queryKey: authKeys.getAuthToken });
+      await logoutUser();
+    },
+    onSuccess: () => {
+      // Delay cache clear so the route transition completes first and
+      // useSuspenseQuery components unmount before their cache is removed.
+      logoutTimer = setTimeout(() => {
+        clearSession();
+        logoutTimer = null;
+      }, 1000);
     }
   });
+};
 
 export const useGetMyIp = () => {
- return useQuery({
+  return useQuery({
     queryKey: userKeys.myIp,
     queryFn: async () => {
-      const { data } = await apiRequest.get<{ ip: string; }>(
-        "/api/v1/users/me/ip"
-      );
+      const { data } = await apiRequest.get<{ ip: string }>("/api/v1/users/me/ip");
       return data.ip;
     },
     enabled: true
-  }); 
-}
-
-export const useGetMyAPIKeys = () => {
-  return useQuery({
-    queryKey: userKeys.myAPIKeys,
-    queryFn: async () => {
-      const { data } = await apiRequest.get<APIKeyData[]>(
-        "/api/v2/users/me/api-keys"
-      );
-      return data;
-    },
-    enabled: true
   });
-}
-
-export const useCreateAPIKey = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      name,
-      expiresIn
-    }: {
-      name: string;
-      expiresIn: number;
-    }) => {
-      const { data } = await apiRequest.post<CreateAPIKeyRes>(
-        "/api/v2/users/me/api-keys",
-        {
-          name,
-          expiresIn
-        }
-      );
-      
-      return data;
-    },
-    onSuccess() {
-      queryClient.invalidateQueries(userKeys.myAPIKeys);
-    }
-  });
-}
-
-export const useDeleteAPIKey = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (apiKeyDataId: string) => {
-      const { data } = await apiRequest.delete(
-        `/api/v2/users/me/api-keys/${apiKeyDataId}`
-      );
-
-      return data;
-    },
-    onSuccess() {
-      queryClient.invalidateQueries(userKeys.myAPIKeys);
-    }
-  });
-}
+};
 
 export const useGetMySessions = () => {
   return useQuery({
     queryKey: userKeys.mySessions,
     queryFn: async () => {
-      const { data } = await apiRequest.get<TokenVersion[]>(
-        "/api/v2/users/me/sessions"
-      );
+      const { data } = await apiRequest.get<TokenVersion[]>("/api/v2/users/me/sessions");
 
       return data;
     },
     enabled: true
   });
-}
+};
 
 export const useRevokeMySessions = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      console.log("useRevokeAllSessions 1");
-      const { data } = await apiRequest.delete(
-        "/api/v2/users/me/sessions"
-      );
+      const { data } = await apiRequest.delete("/api/v2/users/me/sessions");
 
-      console.log("useRevokeAllSessions 2: ", data);
       return data;
     },
     onSuccess() {
-      queryClient.invalidateQueries(userKeys.mySessions);
+      queryClient.invalidateQueries({ queryKey: userKeys.mySessions });
     }
   });
-}
+};
+
+// Enroll an MFA factor: proves and persists the factor. This does not mint or
+// return recovery codes; those are issued only when MFA is enabled (useActivateMfa).
+export const useEnrollMfa = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    meta: { handledErrorCodes: ["SESSION_MFA_REQUIRED"] },
+    mutationFn: async (
+      dto:
+        | { method: MfaMethod.TOTP; totp: string }
+        | {
+            method: MfaMethod.WEBAUTHN;
+            registrationResponse: RegistrationResponseJSON;
+            name?: string;
+          }
+    ) => {
+      await apiRequest.post("/api/v2/users/me/mfa/enroll", dto);
+    },
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: userKeys.getUser });
+      queryClient.invalidateQueries({ queryKey: userKeys.totpConfiguration });
+      // Enrollment is method-agnostic; a WEBAUTHN enroll adds a credential, so
+      // keep the passkey list in sync regardless of the method used.
+      queryClient.invalidateQueries({ queryKey: webAuthnKeys.credentials });
+    }
+  });
+};
+
+// Enable MFA. Issues a fresh recovery-code pool (invalidating any prior codes)
+// and returns it once so the caller can display it to the user.
+export const useActivateMfa = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ selectedMfaMethod }: { selectedMfaMethod?: MfaMethod }) => {
+      const { data } = await apiRequest.post<{ user: unknown; recoveryCodes: string[] }>(
+        "/api/v2/users/me/mfa/activate",
+        {
+          selectedMfaMethod
+        }
+      );
+
+      return { user: data.user, recoveryCodes: data.recoveryCodes };
+    },
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: userKeys.getUser });
+      queryClient.invalidateQueries({ queryKey: userKeys.mfaRecoveryCodes });
+    }
+  });
+};
+
+export const fetchMyOrganizationProjects = async (orgId: string) => {
+  const {
+    data: { workspaces }
+  } = await apiRequest.get(`/api/v1/organization/${orgId}/my-workspaces`);
+
+  return workspaces;
+};
+
+export const useGetMyOrganizationProjects = (orgId: string) => {
+  return useQuery({
+    queryKey: userKeys.myOrganizationProjects(orgId),
+    queryFn: async () => {
+      return fetchMyOrganizationProjects(orgId);
+    },
+    enabled: true
+  });
+};
+
+export const useListUserGroupMemberships = (username: string) => {
+  return useQuery({
+    queryKey: userKeys.listUserGroupMemberships(username),
+    queryFn: async () => {
+      const { data } = await apiRequest.get<TGroupWithProjectMemberships[]>(
+        `/api/v1/user/me/${username}/groups`
+      );
+
+      return data;
+    }
+  });
+};
+
+export const useGetUserTotpRegistration = (options?: { enabled?: boolean }) => {
+  return useQuery({
+    queryKey: userKeys.totpRegistration,
+    queryFn: async () => {
+      const { data } = await apiRequest.post<{ otpUrl: string }>("/api/v1/user/me/totp/register");
+
+      return data;
+    },
+    enabled: options?.enabled ?? true,
+    // Retrying a step-up error would mint a second challenge and email a second code.
+    retry: (failureCount, error) => !getMfaStepUpChallenge(error) && failureCount < 1
+  });
+};
+
+export const useGetUserTotpConfiguration = () => {
+  return useQuery({
+    queryKey: userKeys.totpConfiguration,
+    queryFn: async () => {
+      try {
+        const { data } = await apiRequest.get<{ isVerified: boolean }>("/api/v1/user/me/totp");
+
+        return data;
+      } catch (error) {
+        if (error instanceof AxiosError && [404, 400].includes(error.response?.data?.statusCode)) {
+          return {
+            isVerified: false
+          };
+        }
+        throw error;
+      }
+    }
+  });
+};

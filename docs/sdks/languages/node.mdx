@@ -1,207 +1,1488 @@
 ---
-title: "Node"
-icon: "node"
+title: "Infisical Node.js SDK"
+sidebarTitle: "Node.js"
+description: "Fetch and manage secrets in a Node.js application with the official Infisical Node.js SDK."
+icon: "/images/sdks/languages/node.svg"
 ---
 
-If you're working with Node.js, the official [infisical-node](https://github.com/Infisical/infisical-node) package is the easiest way to fetch and work with secrets for your application.
+If you're working with Node.js, the official Infisical Node.js SDK package is the easiest way to fetch and work with secrets for your application. 
 
-## Basic Usage
+## Requirements
 
-```js
-import express from "express";
-import InfisicalClient from "infisical-node";
-const app = express();
-const PORT = 3000;
+Starting from **v5**, the Node.js SDK requires **Node.js 20 or higher**.
 
-const client = new InfisicalClient({
-  token: "YOUR_INFISICAL_TOKEN"
-});
+| SDK version | Node.js version |
+|-------------|-----------------|
+| `>= v5`     | `>= 20`         |
+| `<= v4`     | `>= 14`         |
 
-app.get("/", async (req, res) => {
-  // access value
-  const name = await client.getSecret("NAME");
-  res.send(`Hello! My name is: ${name.secretValue}`);
-});
+## Deprecation notice
 
-app.listen(PORT, async () => {
-  console.log(`App listening on port ${PORT}`);
-});
-```
-
-This example demonstrates how to use the Infisical Node SDK with an Express application. The application retrieves a secret named "NAME" and responds to requests with a greeting that includes the secret value.
-
-<Warning>
-  We do not recommend hardcoding your [Infisical
-  Token](/documentation/platform/token). Setting it as an environment
-  variable would be best.
-</Warning>
+Please be aware that all versions prior to `4.0.0` are officially fully unsupported.
+Please upgrade to version 4.0.0 or newer in order to receive the latest updates.
 
 ## Installation
 
-Run `npm` to add `infisical-node` to your project.
-
-```console
-$ npm install infisical-node --save
+```bash
+npm install @infisical/sdk
 ```
 
-## Configuration
+## Getting started
 
-Import the SDK and create a client instance with your [Infisical Token](/documentation/platform/token).
+```typescript
+import { InfisicalSDK } from '@infisical/sdk'
 
-<Tabs>
-  <Tab title="ES6">
-    ```js
-    import InfisicalClient from "infisical-node";
-    
-    const client = new InfisicalClient({
-      token: "your_infisical_token"
-    });
-    ```
+const client = new InfisicalSDK({
+  siteUrl: "your-infisical-instance.com" // Optional, defaults to https://app.infisical.com
+});
 
-  </Tab>
-  <Tab title="ES5">
-    ```js
-    const InfisicalClient = require("infisical-node");
-    
-    const client = new InfisicalClient({
-      token: "your_infisical_token"
-    });
-    ````
-  </Tab>
+// Authenticate with Infisical
+await client.auth().universalAuth.login({
+  clientId: "<machine-identity-client-id>",
+  clientSecret: "<machine-identity-client-secret>"
+});
 
-</Tabs>
+const allSecrets = await client.secrets().listSecrets({
+  environment: "dev", // stg, dev, prod, or custom environment slugs
+  projectId: "<your-project-id>"
+});
 
-### Parameters
-
-<ParamField query="options" type="object">
-  <Expandable title="properties">
-    <ParamField query="token" type="string" optional>
-      An [Infisical Token](/documentation/platform/token) scoped to a project
-      and environment
-    </ParamField>
-    <ParamField
-      query="siteURL"
-      type="string"
-      default="https://app.infisical.com"
-      optional
-    >
-      Your self-hosted absolute site URL including the protocol (e.g.
-      `https://app.infisical.com`)
-    </ParamField>
-    <ParamField query="cacheTTL" type="number" default="300" optional>
-      Time-to-live (in seconds) for refreshing cached secrets. Default: `300`.
-    </ParamField>
-    <ParamField query="debug" type="boolean" default="false" optional>
-      Whether or not debug mode is on
-    </ParamField>
-  </Expandable>
-</ParamField>
-
-## Caching
-
-The SDK caches every secret and updates it periodically based on the provided `cacheTTL`. For example, if `cacheTTL` of `300` is provided, then a secret will be refetched 5 minutes after the first fetch; if the fetch fails, the cached secret is returned.
-
-<Tip>
-  For optimal performance, we recommend creating a single instance of the Infisical client and exporting it to be used across your entire app to take advantage of caching benefits.
-</Tip>
-
-## Working with Secrets
-
-### client.getAllSecrets()
-
-```js
-const secrets = await client.getAllSecrets();
+console.log("Fetched secrets", allSecrets)
 ```
 
-Retrieve all secrets within the Infisical project and environment that client is connected to
+## Core methods
 
-### client.getSecret(secretName, options)
+The SDK methods are organized into the following high-level categories:
 
-```js
-const secret = await client.getSecret("API_KEY");
-const value = secret.secretValue; // get its value
+1. `auth`: Handles authentication methods.
+2. `secrets`: Manages CRUD operations for secrets.
+3. `dynamicSecrets`: Manages dynamic secrets and leases.
+4. `projects`: Creates and manages projects.
+5. `environments`: Creates and manages environments.
+6. `folders`: Creates and manages folders.
+7. `kms`: Manages KMS keys and encryption/signing operations.
+8. `agentVault`: Manages [Agent Vault](/documentation/platform/agent-vault/overview) sessions, proxies, access bundles, and delegations.
+
+### `auth`
+
+The `Auth` component provides methods for authentication:
+
+#### Universal auth
+
+#### Authenticating
+```typescript
+await client.auth().universalAuth.login({
+  clientId: "<machine-identity-client-id>",
+  clientSecret: "<machine-identity-client-secret>"
+});
 ```
 
-Retrieve a secret from Infisical.
+**Parameters:**
+- `options` (object):
+  - `clientId` (string): The client ID of your Machine Identity.
+  - `clientSecret` (string): The client secret of your Machine Identity.
 
-By default, `getSecret()` fetches and returns a personal secret. If not found, it returns a shared secret, or tries to retrieve the value from `process.env`. If a secret is fetched, `getSecret()` caches it to reduce excessive calls and re-fetches periodically based on the `cacheTTL` option (default is `300` seconds) when initializing the client — for more information, see the caching section.
-
-### Parameters
-
-<ParamField query="secretName" type="string" required>
-  The key of the secret to retrieve
-</ParamField>
-<ParamField query="options" type="object" optional>
-  <Expandable title="properties">
-    <ParamField query="type" type="string" default="personal" optional>
-      The type of the secret. Valid options are "shared" or "personal"
-    </ParamField>
-  </Expandable>
-</ParamField>
-
-### client.createSecret(secretName, secretValue, options)
-
-```js
-const newApiKey = await client.createSecret("API_KEY", "FOO");
+#### Renewing
+You can renew the authentication token that is currently set by using the `renew()` method.
+```typescript
+await client.auth().universalAuth.renew();
 ```
 
-Create a new secret in Infisical.
+#### Manually set access token
+By default, when you run a successful `.login()` method call, the access token returned will be auto set for the client instance. However, if you wish to set the access token manually, you may use this method.
 
-<ParamField query="secretName" type="string" required>
-  The key of the secret to create
-</ParamField>
-<ParamField query="secretName" type="string" required>
-  The value of the secret to create
-</ParamField>
-<ParamField query="options" type="object" default="object" optional>
-  <Expandable title="properties">
-    <ParamField query="type" type="string" default="shared" optional>
-      The type of the secret. Valid options are "shared" or "personal". A personal secret can only be created if a shared secret with the same name exists.
-    </ParamField>
-  </Expandable>
-</ParamField>
-
-### client.updateSecret(secretName, secretValue, options)
-
-```js
-const updatedApiKey = await client.updateSecret("API_KEY", "BAR");
+```typescript
+client.auth().accessToken("<your-access-token>")
 ```
 
-Update an existing secret in Infisical.
+**Parameters:**
+- `accessToken` (string): The access token to be used for authentication. _This shouldn't include "Bearer"._
 
-### Parameters
 
-<ParamField query="secretName" type="string" required>
-  The key of the secret to update
-</ParamField>
-<ParamField query="secretName" type="string" required>
-  The new value of the secret
-</ParamField>
-<ParamField query="options" type="object" default="object" optional>
-  <Expandable title="properties">
-    <ParamField query="type" type="string" default="shared" optional>
-      The type of the secret. Valid options are "shared" or "personal"
-    </ParamField>
-  </Expandable>
-</ParamField>
+#### AWS IAM
 
-### client.deleteSecret(secretName, options)
+<Note>
+  AWS IAM auth only works when the SDK is being used from within an AWS service, such as Lambda, EC2, etc.
+</Note>
 
-```js
-const deletedSecret = await client.deleteSecret("API_KEY");
+#### Authenticating
+```typescript
+await client.auth().awsIamAuth.login({
+  identityId: "<your-identity-id>"
+})
 ```
 
-Delete a secret in Infisical.
+**Parameters:**
+- `options` (object):
+  - `identityId` (string): The ID of your identity
 
-<ParamField query="secretName" type="string" required>
-  The key of the secret to delete
-</ParamField>
-<ParamField query="options" type="object" default="object" optional>
-  <Expandable title="properties">
-    <ParamField query="type" type="string" default="shared" optional>
-      The type of the secret. Valid options are "shared" or "personal". Note that deleting a shared secret also deletes all associated personal secrets.
-    </ParamField>
-  </Expandable>
-</ParamField>
+#### Renewing
+You can renew the authentication token that is currently set by using the `renew()` method.
+```typescript
+await client.auth().awsIamAuth.renew();
+```
 
 
+### `secrets`
+
+This sub-class handles operations related to secrets:
+
+#### List secrets
+
+```typescript
+const allSecrets = await client.secrets().listSecrets({
+  environment: "dev",
+  projectId: "<your-project-id>",
+  expandSecretReferences: true,
+  viewSecretValue: true,
+  includeImports: false,
+  recursive: false,
+  secretPath: "/prod/backend",
+});
+```
+
+**Parameters:**
+- `projectId` (string): The ID of your project.
+- `environment` (string): The environment in which to list secrets (e.g., "dev").
+- `secretPath` (str): The path to the secrets.
+- `expandSecretReferences` (bool, optional): Whether to expand secret references.
+- `viewSecretValue` (bool, optional): Whether or not to reveal the secret value of the secrets. If set to `false`, the `secretValue` is masked with `<hidden-by-infisical>`. Defaults to `true`.
+- `recursive` (bool, optional): Whether to list secrets recursively.
+- `includeImports` (bool, optional): Whether to include imported secrets.
+- `tagFilters` (string[], optional): Tags to filter secrets.
+
+**Returns:**
+- `ListSecretsResponse`: The response containing the list of secrets.
+
+#### List secrets with imports
+
+The `listSecretsWithImports` method makes it easier to get all your secrets at once. The imported secrets will automatically be added to the secrets returned. The secrets in the selected environment will take precedence over the imported secrets. This means if you have secrets with conflicting names, the secret from the environment the import was imported into, will take precedence. 
+
+```typescript
+const allSecrets = await client.secrets().listSecretsWithImports({
+  environment: "dev",
+  projectId: "<your-project-id>",
+  expandSecretReferences: true,
+  viewSecretValue: true,
+  recursive: false,
+  secretPath: "/prod/backend"
+});
+```
+
+**Parameters:**
+- `projectId` (string): The ID of your project.
+- `environment` (string): The environment in which to list secrets (e.g., "dev").
+- `secretPath` (str): The path to the secrets.
+- `expandSecretReferences` (bool, optional): Whether to expand secret references.
+- `viewSecretValue` (bool, optional): Whether or not to reveal the secret value of the secrets. If set to `false`, the `secretValue` is masked with `<hidden-by-infisical>`. Defaults to `true`.
+- `recursive` (bool, optional): Whether to list secrets recursively.
+- `tagFilters` (string[], optional): Tags to filter secrets.
+
+**Returns:**
+- `Secret[]`: Returns the list of secrets objects, with imports.
+
+
+
+#### Create secret
+
+```typescript
+	const newSecret = await client.secrets().createSecret("SECRET_NAME", {
+		environment: "dev",
+		projectId: "<your-project-id>",
+		secretValue: "SECRET_VALUE",
+		secretComment: "This is a new secret",          // Optional
+		secretPath: "/prod/backend",                         // Optional
+		secretReminderNote: "This is a reminder note",  // Optional
+		secretReminderRepeatDays: 7,                    // Optional
+		skipMultilineEncoding: false,                   // Optional
+		tagIds: ["tagId1", "tagId2"],                   // Optional
+		type: "personal"                                // Optional
+	});
+```
+
+**Parameters:**
+- `secretName` (string): The name of the secret to create
+- `options` (object):
+  - `projectId` (string): The ID of your project.
+  - `environment` (str): The environment in which to create the secret.
+  - `secretValue` (str): The value of the secret.
+  - `secretPath` (string, optional): The path to the secret.
+  - `secretComment` (str, optional): A comment associated with the secret.
+  - `skipMultilineEncoding` (bool, optional): Whether to skip encoding for multiline secrets.
+  - `secretReminderNote` (string, optional): A note for the secret reminder.
+  - `secretReminderRepeatDays` (number, optional): Number of days after which to repeat secret reminders.
+  - `tagIds` (string[], optional): Array of tags to assign to the new secret.
+  - `type` (personal | shared, optional): Which type of secret to create.
+
+**Returns:**
+- `CreateSecretResponse`: The response after creating the secret.
+
+#### Update secret
+
+```typescript
+const updatedSecret = await client.secrets().updateSecret("SECRET_TO_UPDATE", {
+  environment: "dev",                                     
+  projectId: "<your-project-id>",                                  
+  secretValue: "UPDATED_SECRET_VALUE",                    
+  newSecretName: "NEW_SECRET_NAME2",                      // Optional
+  secretComment: "This is an updated secret",             // Optional
+  secretPath: "/prod/backend",                                 // Optional
+  secretReminderNote: "This is an updated reminder note", // Optional
+  secretReminderRepeatDays: 14,                           // Optional
+  skipMultilineEncoding: false,                           // Optional
+  tagIds: ["tagId1", "tagId2"],                           // Optional
+  type: "personal",                                       // Optional
+  metadata: {                                             // Optional
+    extra: "metadata"
+  }
+});
+```
+
+**Parameters:**
+- `secretName` (string): The name of the secret to update.`
+- `options` (object):
+  - `environment` (str): The environment in which to update the secret.
+  - `projectId` (str): The ID of your project.
+  - `secretValue` (str, optional): The new value of the secret.
+  - `newSecretName` (str, optional): A new name for the secret.
+  - `secretComment` (str, optional): An updated comment associated with the secret.
+  - `secretPath` (str): The path to the secret.
+  - `secretReminderNote` (str, optional): An updated note for the secret reminder.
+  - `secretReminderRepeatDays` (number, optional): Updated number of days after which to repeat secret reminders.
+  - `skipMultilineEncoding` (bool, optional): Whether to skip encoding for multiline secrets.
+  - `tagIds` (string[], optional): Array of tags to assign to the secret.
+  - `type` (personal | shared, optional): Which type of secret to create.
+  - `metadata` (object, optional): Assign additional details to the secret, accessible through the API.
+
+**Returns:**
+- `UpdateSecretResponse`: The response after updating the secret.
+
+#### Get secret by name
+
+```typescript
+	const singleSecret = await client.secrets().getSecret({
+    environment: "dev",
+		projectId: "<your-project-id>",
+		secretName: "DATABASE_URL",
+		expandSecretReferences: true, // Optional
+    viewSecretValue: true,        // Optional
+		includeImports: true,         // Optional
+		secretPath: "/prod/backend",       // Optional
+		type: "shared",               // Optional
+		version: 1                    // Optional
+	});
+```
+
+**Parameters:**
+- `environment` (str): The environment in which to retrieve the secret.
+- `projectId` (str): The ID of your project.
+- `secretName` (str): The name of the secret.
+- `secretPath` (str, optional): The path to the secret.
+- `expandSecretReferences` (bool, optional): Whether to expand secret references.
+- `viewSecretValue` (bool, optional): Whether or not to reveal the secret value of the secret. If set to `false`, the `secretValue` is masked with `<hidden-by-infisical>`. Defaults to `true`.
+- `includeImports` (bool): Whether to include imported secrets.
+- `version` (str, optional): The version of the secret to retrieve. Fetches the latest by default.
+- `type` (personal | shared, optional): The type of secret to fetch.
+
+
+**Returns:**
+- `Secret`: Returns the secret object.
+
+#### Delete secret by name
+
+```typescript
+const deletedSecret = await client.secrets().deleteSecret("SECRET_TO_DELETE", {
+  environment: "dev",
+  projectId: "<your-project-id>",
+  secretPath: "/prod/backend", // Optional
+  type: "personal"        // Optional
+});
+```
+
+**Parameters:**
+- `secretName` (string): The name of the secret to delete.
+- `options` (object): 
+  - `projectId` (str): The ID of your project.
+  - `environment` (str): The environment in which to delete the secret.
+  - `secret_path` (str, optional): The path to the secret.
+  - `type` (personal | shared, optional): The type of secret to delete.
+
+**Returns:**
+- `DeleteSecretResponse`: The response after deleting the secret.
+
+
+
+
+### `dynamicSecrets`
+
+
+#### Create a new dynamic secret
+
+Creating a new dynamic secret can be done by using the `.dynamicSecrets().create({})` function. More details below.
+
+
+The input for creating new dynamic secret varies greatly between secret types.
+For a more in-depth description of each input type for each dynamic secret type, please refer to [our API documentation](https://infisical.com/docs/api-reference/endpoints/dynamic-secrets/create)
+
+
+##### Example for creating a new Redis dynamic secret
+
+```typescript
+import { InfisicalSDK, DynamicSecretProviders } from "@infisical/sdk";
+	const client = new InfisicalSDK();
+
+	await client.auth().universalAuth.login({
+		// For localhost
+		clientId: "CLIENT_ID",
+		clientSecret: "CLIENT_SECRET"
+	});
+const dynamicSecret = await client.dynamicSecrets().create({
+  provider: {
+    type: DynamicSecretProviders.Redis,
+    inputs: {
+      host: "<redis-host>",
+      port: 6479,
+      username: "<redis-username>",
+      password: "<redis-password>", // Only required if your Redis instance uses authentication (recommended)
+      creationStatement: "ACL SETUSER {{username}} on >{{password}} ~* &* +@all",
+      revocationStatement: "ACL DELUSER {{username}}"
+    }
+  },
+  defaultTTL: "1h",
+  maxTTL: "24h",
+  name: "dynamic-secret-name",
+  projectSlug: "project-slug",
+  environmentSlug: "dev"
+});
+console.log(dynamicSecret);
+```
+
+**Returns:**
+- `DynamicSecret`: The created dynamic secret.
+
+
+#### Delete a dynamic secret
+
+Note: Deleting a dynamic secret will also delete it's associated leases.
+
+```typescript
+const deletedDynamicSecret = await client.dynamicSecrets().delete("dynamic-secret-name", {
+  environmentSlug: "dev",
+  projectSlug: "project-slug"
+});
+```
+
+**Parameters:**
+- `secretName` (string): The ID of the dynamic secret to delete
+- `options` (object):
+  - `projectSlug` (str): The ID of your project.
+  - `environment` (str): The environment in which to delete the secret.
+
+**Returns:**
+- `DynamicSecret`: The deleted dynamic secret.
+
+### `dynamicSecrets.leases`
+In this section you'll learn how to work with dynamic secret leases
+
+
+#### Create a new lease
+
+```typescript
+const lease = await client.dynamicSecrets().leases.create({
+  dynamicSecretName: "dynamic-secret-name",
+  environmentSlug: "dev",
+  projectSlug: "your-project-slug",
+  path: "/prod/backend",
+  ttl: "5m" // Optional
+});
+
+console.log(lease);
+```
+
+**Your dynamic secret credentials will be contained user `lease.data` in this example.**
+
+**Parameters:**
+- `dynamicSecretName` (string): The name of the dynamic secret you wish to create a lease for.
+- `projectSlug` (string): The slug of the project where the secret is located.
+- `environmentSlug` (string): The environment where the dynamic secret is located.
+- `path` (string, optional): The path of where the dynamic secret is located. 
+- `ttl` (string, optional): A [vercel/ms](https://github.com/vercel/ms) encoded string representation of how long the lease credentials should be valid for. This will default to the dynamic secret's default TTL if not specified.
+
+**Returns:**
+- `CreateLeaseResponse`: The dynamic secret lease result.
+
+
+#### Delete a lease
+```typescript
+const deletedLease = await client.dynamicSecrets().leases.delete(newLease.lease.id, {
+  environmentSlug: "dev",
+  projectSlug: "test-zb-3a",
+  path: "/prod/backend",
+  isForced: false // Whether or not to forcefully delete the lease. This can't guarantee that the lease will be deleted from the external provider.
+});
+```
+
+**Parameters:**
+- `leaseId` (string): The ID of the lease you want to delete.
+- options:
+  - `projectSlug` (string): The slug of the project where the secret is located.
+  - `environmentSlug` (string): The environment where the dynamic secret is located.
+  - `path` (string, optional): The path of where the dynamic secret is located. 
+  - `isForced` (bool, optional): Whether or not to forcefully delete the lease. This can't guarantee that the lease will be deleted from the external provider, and is potentially unsafe for sensitive dynamic secrets.
+
+**Returns:**
+- `DeleteLeaseResponse`: The deleted lease result.
+
+#### Renew a lease
+
+Please note that renewals must happen **before** the lease has fully expired. After renewing the lease, you won't be given new credentials. Instead the existing credentials will continue to live for the specified TTL
+
+```typescript
+const renewedLease = await client.dynamicSecrets().leases.renew(newLease.lease.id, {
+		environmentSlug: "dev",
+		projectSlug: "project-slug",
+		path: "/prod/backend", // Optional
+		ttl: "10m" // Optional
+	});
+```
+
+**Parameters:**
+- `leaseId` (string): The ID of the lease you want to delete.
+- `options` (object):
+  - `projectSlug` (string): The slug of the project where the secret is located.
+  - `environmentSlug` (string): The environment where the dynamic secret is located.
+  - `path` (string, optional): The path of where the dynamic secret is located. 
+  - `ttl` (string, optional): A [vercel/ms](https://github.com/vercel/ms) encoded string representation of how long the lease credentials should be valid for. This will default to the dynamic secret's default TTL if not specified.
+
+**Returns:**
+- `RenewLeaseResponse`: The renewed lease response _(doesn't contain new credentials)_.
+
+### `projects`
+
+#### Create a new project
+
+```typescript
+const project = await client.projects().create({
+  projectName: "<name-of-project>",
+  type: "secret-manager", // cert-manager, secret-manager, kms, ssh
+  projectDescription: "<project-description>", // Optional
+  slug: "<slug-of-project-to-create>", // Optional
+  template: "<project-template-name>", // Optional
+  kmsKeyId: "<kms-key-id>" // Optional
+});
+```
+
+**Parameters:**
+- `projectName` (string): The name of the project to create.
+- `type` (string): The type of project to create. Valid options are `secret-manager`, `cert-manager`, `kms`, `ssh`
+- `projectDescription` (string): An optional description of the project to create.
+- `slug` (string): An optional slug for the project to create. If not provided, one will be generated automatically.
+- `template` (string): Optionally provide a project template name to use for creating this project.
+- `kmsKeyId` (string): The ID of the KMS key to use for the project. Will use the Infisical KMS by default.
+
+**Returns:**
+- `Project`: The project that was created.
+
+
+#### Invite members to a project
+
+When inviting members to projects, you must either specify the `emails` or `usernames`. If neither are specified, the SDK will throw an error.
+
+```typescript
+const memberships = await client.projects().inviteMembers({
+  projectId: project.id,
+  emails: ["test1@example.com", "test2@example.com"], // Optional
+  usernames: ["example-user3", "example-user4"] // Optional 
+  roleSlugs: ["member"] // Optional
+});
+```
+
+**Parameters:**
+- `projectId`: (string): The ID of the project to invite members to
+- `emails`: (string[]): An array of emails of the users to invite to the project.
+- `usernames`: (string[]) An array of usernames of the users to invite to the project.
+- `roleSlugs`: (string[]): An array of role slugs to assign to the members. If not specified, this will default to `member`.
+
+**Returns:**
+- `Membership[]`: An array of the created project memberships.
+
+### `environments`
+
+#### Create a new environment
+
+```typescript
+const environment = await client.environments().create({
+  name: "<environment-name>",
+  projectId: "<your-project-id>",
+  slug: "<environment-slug>",
+  position: 1 // Optional
+});
+```
+
+**Parameters:**
+- `name` (string): The name of the environment to be created.
+- `projectId` (string): The ID of the project to create the environment within.
+- `slug`: (string): The slug of the environment to be created.
+- `position` (number): An optional position of the environment to be created. The position is used in the Infisical UI to display environments in order. Environments with the lowest position come first.
+
+**Returns:**
+- `Environment`: The environment that was created.
+
+#### Create a new folder
+
+```typescript
+const folder = await client.folders().create({
+  name: "<folder-name>",
+  path: "<folder-path>",
+  projectId: "<your-project-id>",
+  environment: "<environment-slug>",
+  description: "<folder-description>" // Optional
+});
+```
+
+**Parameters:**
+- `name` (string): The name of the folder to create.
+- `path` (string): The path where of where to create the folder. Defaults to `/`, which is the root folder.
+- `projectId` (string): The ID of the project to create the folder within.
+- `environment` (string): The slug of the environment to create the folder within.
+- `description` (string): An optional folder description.
+
+**Returns:**
+- `Folder`: The folder that was created.
+
+#### List folders
+
+```typescript
+const folders = await client.folders().listFolders({
+  environment: "dev",
+  projectId: "<your-project-id>",
+  path: "/prod/backend", // Optional
+  recursive: false // Optional
+});
+```
+
+**Parameters:**
+- `environment` (string): The slug of the environment to list folders within.
+- `projectId` (string): The ID of the project to list folders within.
+- `path` (string): The path to list folders within. Defaults to `/`, which is the root folder.
+- `recursive` (boolean): An optional flag to list folders recursively. Defaults to `false`.
+
+**Returns:**
+- `Folder[]`: An array of folders.
+
+### `kms`
+
+The Key Management Service (KMS) module allows you to create and manage cryptographic keys for encryption and digital signing operations.
+
+#### Create a new KMS key
+
+Creating a new KMS key can be done by using the `.kms().keys().create({})` function. Keys can be created for either encryption/decryption or signing/verification operations.
+
+##### Example for creating an encryption key
+
+```typescript
+import { InfisicalSDK, KeyUsage, EncryptionAlgorithm } from "@infisical/sdk";
+const client = new InfisicalSDK();
+
+await client.auth().universalAuth.login({
+	clientId: "CLIENT_ID",
+	clientSecret: "CLIENT_SECRET"
+});
+
+const encryptionKey = await client.kms().keys().create({
+	projectId: "your-project-id",
+	name: "my-encryption-key",
+	description: "Key for encrypting sensitive data",
+	keyUsage: KeyUsage.ENCRYPTION,
+	encryptionAlgorithm: EncryptionAlgorithm.AES_256_GCM
+});
+
+console.log(encryptionKey);
+```
+
+##### Example for creating a signing key
+
+```typescript
+const signingKey = await client.kms().keys().create({
+	projectId: "your-project-id",
+	name: "my-signing-key",
+	description: "Key for signing documents",
+	keyUsage: KeyUsage.SIGNING,
+	encryptionAlgorithm: EncryptionAlgorithm.RSA_4096
+});
+
+console.log(signingKey);
+```
+
+**Parameters:**
+- `projectId` (string): The ID of your project.
+- `name` (string): The name of the KMS key.
+- `description` (string, optional): A description of the key's purpose.
+- `keyUsage` (KeyUsage): Either `KeyUsage.ENCRYPTION` for encrypt/decrypt operations or `KeyUsage.SIGNING` for sign/verify operations.
+- `encryptionAlgorithm` (EncryptionAlgorithm): The algorithm to use. Options include:
+  - For encryption: `AES_256_GCM`, `AES_128_GCM`, `RSA_4096`, `ECC_NIST_P256`
+  - For signing: `RSA_4096`, `ECC_NIST_P256`
+
+**Returns:**
+- `KmsKey`: The created KMS key object.
+
+#### Get a KMS key by name
+
+```typescript
+const key = await client.kms().keys().getByName({
+	projectId: "your-project-id",
+	name: "my-encryption-key"
+});
+
+console.log(key);
+```
+
+**Parameters:**
+- `projectId` (string): The ID of your project.
+- `name` (string): The name of the KMS key to retrieve.
+
+**Returns:**
+- `KmsKey`: The KMS key object.
+
+#### Delete a KMS key
+
+```typescript
+const deletedKey = await client.kms().keys().delete({
+	keyId: "<kms-key-id>"
+});
+
+console.log(deletedKey);
+```
+
+**Parameters:**
+- `keyId` (string): The ID of the KMS key to delete.
+
+**Returns:**
+- `KmsKey`: The deleted KMS key object.
+
+### `kms.encryption`
+
+The encryption module provides operations for encrypting and decrypting data using KMS keys created with `KeyUsage.ENCRYPTION`.
+
+#### Encrypt data
+
+```typescript
+const encrypted = await client.kms().encryption().encrypt({
+	keyId: "<kms-key-id>",
+	plaintext: "<base64-encoded-data>"
+});
+
+console.log(encrypted); // Returns the ciphertext string
+```
+
+**Parameters:**
+- `keyId` (string): The ID of the encryption key.
+- `plaintext` (string): The data to encrypt. This must be base64 encoded.
+
+**Returns:**
+- `string`: The encrypted ciphertext.
+
+#### Decrypt data
+
+```typescript
+const decrypted = await client.kms().encryption().decrypt({
+	keyId: "<kms-key-id>",
+	ciphertext: "<encrypted-data>"
+});
+
+console.log(decrypted); // Returns the original plaintext
+```
+
+**Parameters:**
+- `keyId` (string): The ID of the encryption key used to encrypt the data.
+- `ciphertext` (string): The encrypted data to decrypt.
+
+**Returns:**
+- `string`: The decrypted plaintext.
+
+### `kms.signing`
+
+The signing module provides operations for digitally signing data and verifying signatures using KMS keys created with `KeyUsage.SIGNING`.
+
+#### Sign data
+
+```typescript
+import { SigningAlgorithm } from "@infisical/sdk";
+
+const signature = await client.kms().signing().sign({
+	keyId: "<kms-key-id>",
+	data: "<base64-encoded-data>",
+	signingAlgorithm: SigningAlgorithm.RSASSA_PSS_SHA_256,
+	isDigest: false // Optional: set to true if data is already a hash digest
+});
+
+console.log(signature);
+```
+
+**Parameters:**
+- `keyId` (string): The ID of the signing key.
+- `data` (string): The data to sign.
+- `signingAlgorithm` (SigningAlgorithm): The signing algorithm to use. Available algorithms:
+  - **RSA PSS** (non-deterministic): `RSASSA_PSS_SHA_256`, `RSASSA_PSS_SHA_384`, `RSASSA_PSS_SHA_512`
+  - **RSA PKCS#1 v1.5** (deterministic): `RSASSA_PKCS1_V1_5_SHA_256`, `RSASSA_PKCS1_V1_5_SHA_384`, `RSASSA_PKCS1_V1_5_SHA_512`
+  - **ECDSA** (non-deterministic): `ECDSA_SHA_256`, `ECDSA_SHA_384`, `ECDSA_SHA_512`
+- `isDigest` (boolean, optional): Whether the data is already a hash digest. Defaults to `false`.
+
+**Returns:**
+- `KmsSignDataResponse`: Object containing the signature, keyId, and signingAlgorithm.
+
+#### Verify a signature
+
+```typescript
+const verification = await client.kms().signing().verify({
+	keyId: "<kms-key-id>",
+	data: "<base64-encoded-original-data>", // Must be base64 encoded
+	signature: "<data-signature>",
+	signingAlgorithm: SigningAlgorithm.RSASSA_PSS_SHA_256,
+	isDigest: false // Optional: set to true if data is already a hash digest
+});
+
+console.log(verification.signatureValid); // true or false
+```
+
+**Parameters:**
+- `keyId` (string): The ID of the signing key used to create the signature.
+- `data` (string): The original data that was signed (must be base64 encoded).
+- `signature` (string): The signature to verify.
+- `signingAlgorithm` (SigningAlgorithm): The same signing algorithm used to create the signature.
+- `isDigest` (boolean, optional): Whether the data is already a hash digest. Defaults to `false`.
+
+**Returns:**
+- `KmsVerifyDataResponse`: Object containing `signatureValid` (boolean), `keyId`, and `signingAlgorithm`.
+
+#### Get supported signing algorithms for a key
+
+```typescript
+const algorithms = await client.kms().signing().listSigningAlgorithms({
+	keyId: "<kms-key-id>"
+});
+
+console.log(algorithms); // Array of supported SigningAlgorithm values
+```
+
+**Parameters:**
+- `keyId` (string): The ID of the KMS signing key.
+
+**Returns:**
+- `SigningAlgorithm[]`: Array of supported signing algorithms for the key.
+
+#### Get public key
+
+Retrieve the public key for signature verification operations.
+
+```typescript
+const publicKey = await client.kms().signing().getPublicKey({
+	keyId: "<kms-key-id>"
+});
+
+console.log(publicKey); // Returns the public key string
+```
+
+**Parameters:**
+- `keyId` (string): The ID of the KMS signing key.
+
+**Returns:**
+- `string`: The public key in PEM format.
+
+### `agentVault.sessions`
+
+`client.agentVault().sessions` manages [Agent Vault sessions](/documentation/platform/agent-vault/sessions). A session lets an AI agent use the [services](/documentation/platform/agent-vault/services) in one [access bundle](/documentation/platform/agent-vault/access-bundles), the [inline services](/documentation/platform/agent-vault/inline-services) sent with the session, or both, until the session expires or someone revokes it.
+
+What the client can do with sessions depends on the [role](/documentation/platform/agent-vault/access-control#product-membership) that the user or machine identity the client logs in as has in the Agent Vault project:
+
+| Role | Can create sessions with | Can list, get, label, and revoke |
+| --- | --- | --- |
+| **Admin** | Any access bundle (on behalf of a user, [only access bundles that the user can use too](#create-a-session-on-behalf-of-a-user)), and [inline services](#create-a-session-with-inline-services) | Every session |
+| **Member** | The access bundles [granted](/documentation/platform/agent-vault/access-bundles#grant-access) to the member | The member's own sessions |
+
+<Note>
+  `agentVault` requires `@infisical/sdk` version 5.2.0 or newer.
+</Note>
+
+#### List sessions
+
+```typescript
+import { AgentVaultSessionScope, AgentVaultSessionStatus } from "@infisical/sdk";
+
+const { sessions, totalCount } = await client.agentVault().sessions.list({
+  projectId: "<project-id>",
+  scope: AgentVaultSessionScope.Mine, // Optional
+  statuses: [AgentVaultSessionStatus.Active], // Optional
+  search: "nightly deploy", // Optional
+  limit: 20, // Optional
+  offset: 0 // Optional
+});
+```
+
+**Parameters:**
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to list sessions from
+  - `scope` (AgentVaultSessionScope, optional): whose sessions to list, either `AgentVaultSessionScope.Mine` (`"mine"`) for your own sessions or `AgentVaultSessionScope.All` (`"all"`) for every session if you're an admin (defaults to `AgentVaultSessionScope.Mine`)
+  - `statuses` (AgentVaultSessionStatus[], optional): the statuses to include, from `AgentVaultSessionStatus.Active` (`"active"`), `AgentVaultSessionStatus.Revoked` (`"revoked"`), and `AgentVaultSessionStatus.Expired` (`"expired"`) (defaults to all three)
+  - `search` (string, optional): text to find in each session's [label](/documentation/platform/agent-vault/sessions#label-a-session), owner name, owner email, access bundle name, or the name or email of the user that the session was [created on behalf of](/documentation/platform/agent-vault/sessions-on-behalf-of-users)
+  - `limit` (number, optional): the maximum number of sessions to return, from 1 to 100 (defaults to `20`)
+  - `offset` (number, optional): the number of sessions to skip (defaults to `0`)
+
+**Returns:**
+- `ListAgentVaultSessionsResponse`: the sessions in `sessions`, and the total number of matching sessions in `totalCount`
+
+#### Get session
+
+```typescript
+const session = await client.agentVault().sessions.get("<session-id>");
+```
+
+**Parameters:**
+- `sessionId` (string): the ID of the session
+
+**Returns:**
+- `AgentVaultSession`: the session
+
+#### Create session
+
+```typescript
+const session = await client.agentVault().sessions.create({
+  projectId: "<project-id>",
+  accessBundle: "<access-bundle-name>",
+  ttl: "1h", // Optional
+  label: "nightly deploy" // Optional
+});
+```
+
+**Parameters:**
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to create the session in
+  - `accessBundle` (string, optional): the name of the access bundle that the agent can use during the session (pass `accessBundle`, `services`, or both)
+  - `services` (AgentVaultInlineServiceInput[], optional): [inline services](#create-a-session-with-inline-services) to send with the session (Agent Vault admins only, up to 20)
+  - `ttl` (string, optional): how long the session lasts, as a duration of at least one minute such as `30m`, `8h`, or `7d`, or as `never` for a session that doesn't expire (defaults to `7d`, or to `1h` for a session on behalf of a user)
+  - `label` (string, optional): a short description of what the session is for, such as `nightly deploy` (up to 128 characters, without line breaks, tabs, or invisible characters)
+  - `onBehalfOfUserEmail` (string, optional): the email address of the user that the session is [created on behalf of](#create-a-session-on-behalf-of-a-user) (throws an `InfisicalSDKError` if you also pass `onBehalfOfUserId`)
+  - `onBehalfOfUserId` (string, optional): the ID of the user that the session is created on behalf of (throws an `InfisicalSDKError` if you also pass `onBehalfOfUserEmail`)
+
+**Returns:**
+- `CreatedAgentVaultSession`: the new session, with the session token in `token` (Infisical returns the token only once)
+
+To pass `session.token` to the agent, follow the steps in [Start the agent with the session token](/documentation/platform/agent-vault/sessions-api#step-4-start-the-agent-with-the-session-token).
+
+#### Create a session on behalf of a user
+
+If the client logs in as a machine identity with a [delegation](/documentation/platform/agent-vault/sessions-on-behalf-of-users#set-up-a-delegation), the client can create sessions on behalf of the users that the delegation covers. For each of those sessions, the proxy uses the user's [personal values](/documentation/platform/agent-vault/http-apis#member-provided-values) instead of the machine identity's.
+
+```typescript
+const session = await client.agentVault().sessions.create({
+  projectId: "<project-id>",
+  accessBundle: "<access-bundle-name>",
+  onBehalfOfUserEmail: "<user-email>"
+});
+```
+
+- The session can use an access bundle only if both the user and the machine identity [can use the bundle](/documentation/platform/agent-vault/sessions-on-behalf-of-users#what-the-session-can-reach)
+- The session belongs to the machine identity, so the user can't see the session unless they're an Agent Vault admin
+- In each session that the `get`, `list`, `update`, and `revoke` methods return, `onBehalfOf` is the user, or `null` if the session is the machine identity's own
+
+To find the access bundles that a session on behalf of the user can use, pass the user's email address or ID to [`accessBundles.list`](#list-access-bundles). The proxy refuses a session's requests to services that still need the user's personal values, so also pass `requiresSetup: false` to leave out the access bundles with those services.
+
+#### Create a session with inline services
+
+If the client logs in as a user or machine identity with the **Admin** role in the Agent Vault project, the client can send inline services with a session, instead of or beside an access bundle. Inline services let you pass along credentials that your code already holds, without setting anything up in Agent Vault in advance.
+
+```typescript
+const session = await client.agentVault().sessions.create({
+  projectId: "<project-id>",
+  ttl: "1h",
+  services: [
+    {
+      type: "http",
+      name: "github",
+      hostPattern: "api.github.com",
+      allowedMethods: ["GET"],
+      credential: { type: "bearer", value: "<github-token>" }
+    }
+  ]
+});
+```
+
+- Each service is an HTTP API (`type: "http"`) or an MCP server (`type: "mcp"`)
+- Credentials, custom header values, and substitution values can't contain text in double braces, such as `{{GITHUB_TOKEN}}`, because inline services can't use [variables](/documentation/platform/agent-vault/variables)
+- A session can have up to 20 inline services, and no two of its services can have the same name or host pattern, including the services in its access bundle
+- If a machine identity creates the session on behalf of a user, the machine identity needs the **Admin** role and the user doesn't, and the inline services don't use the user's personal values
+- In each session that the `create`, `get`, `list`, and `update` methods return, `services` lists the inline services without their secrets
+
+For the fields that each type of service takes, and for when Infisical deletes the services' secrets, see [Inline services](/documentation/platform/agent-vault/inline-services).
+
+#### Update session label
+
+Add, change, or remove a session's label, for example to record what the agent is working on. You can change the label after the session expires or is revoked, unless someone deleted the session's owner or the user that the session was created on behalf of.
+
+```typescript
+const session = await client.agentVault().sessions.update("<session-id>", {
+  label: "support ticket triage"
+});
+```
+
+**Parameters:**
+- `sessionId` (string): the ID of the session
+- `options` (object):
+  - `label` (string | null): the new label, or `null` to remove the label (up to 128 characters, without line breaks, tabs, or invisible characters)
+
+**Returns:**
+- `AgentVaultSession`: the updated session
+
+#### Revoke session
+
+Revoke a session when its agent finishes, even if the agent fails. The proxy stops attaching credentials to the session's requests within one [poll interval](/documentation/platform/agent-vault/proxies#poll-interval).
+
+If the agent can run longer than the client's access token lasts, log in again before you revoke the session, because the SDK doesn't renew the access token on its own. Set `ttl` close to how long the agent runs, so that the session expires soon after the agent finishes even if revoking the session fails.
+
+```typescript
+const session = await client.agentVault().sessions.create({
+  projectId: "<project-id>",
+  accessBundle: "<access-bundle-name>",
+  ttl: "1h"
+});
+
+try {
+  await runAgent(session.token); // Your code that starts the agent with the session token
+} finally {
+  await client.agentVault().sessions.revoke(session.id);
+}
+```
+
+**Parameters:**
+- `sessionId` (string): the ID of the session
+
+**Returns:**
+- `Omit<AgentVaultSession, "accessBundle" | "services">`: the revoked session, without its access bundle and inline services (call `get` for them)
+
+### `agentVault.proxies`
+
+`client.agentVault().proxies` manages [Agent Vault proxies](/documentation/platform/agent-vault/proxies). A proxy attaches API credentials to the requests that agents send through it.
+
+To use any method in this section except `list`, the client must log in as a user or machine identity with the **Admin** role in the [Agent Vault project](/documentation/platform/agent-vault/access-control#product-membership).
+
+<Note>
+  `agentVault` requires `@infisical/sdk` version 5.2.0 or newer.
+</Note>
+
+#### List proxies
+
+```typescript
+const { proxies, totalCount } = await client.agentVault().proxies.list({
+  projectId: "<project-id>",
+  search: "edge", // Optional
+  orderBy: "name", // Optional
+  orderDirection: "asc", // Optional
+  limit: 20, // Optional
+  offset: 0 // Optional
+});
+```
+
+**Parameters:**
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to list proxies from
+  - `search` (string, optional): text to find in proxy names and descriptions
+  - `orderBy` (string, optional): what to sort the proxies by, `name` or `createdAt` (defaults to `createdAt`)
+  - `orderDirection` (string, optional): the direction to sort in, `asc` or `desc` (defaults to `desc`)
+  - `limit` (number, optional): the maximum number of proxies to return, from 1 to 100 (defaults to `20`)
+  - `offset` (number, optional): the number of proxies to skip (defaults to `0`)
+
+**Returns:**
+- `ListAgentVaultProxiesResponse`: the proxies in `proxies`, and the total number of matching proxies in `totalCount`
+
+If the client logs in as a member, the proxies have no `trafficPolicy`, `allowedHosts`, `pollInterval`, or `createdAt`.
+
+#### Create proxy
+
+```typescript
+import { AgentVaultTrafficPolicy } from "@infisical/sdk";
+
+const { proxy, proxyToken } = await client.agentVault().proxies.create({
+  projectId: "<project-id>",
+  name: "edge-proxy",
+  trafficPolicy: AgentVaultTrafficPolicy.ServiceHosts, // Optional
+  allowedHosts: ["registry.npmjs.org", "registry.yarnpkg.com"], // Optional
+  pollInterval: 60, // Optional
+  description: "Proxy for CI runners" // Optional
+});
+```
+
+**Parameters:**
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to create the proxy in
+  - `name` (string): the name of the proxy, in lowercase letters, numbers, and hyphens (up to 64 characters)
+  - `trafficPolicy` (AgentVaultTrafficPolicy, optional): the proxy's [traffic policy](/documentation/platform/agent-vault/proxies#traffic-policy), either `AgentVaultTrafficPolicy.AnyHost` (`"any-host"`) to forward requests to any host or `AgentVaultTrafficPolicy.ServiceHosts` (`"service-hosts"`) to refuse requests to hosts that none of the session's services cover (defaults to `AgentVaultTrafficPolicy.AnyHost`)
+  - `allowedHosts` (string[] | string, optional): hosts that agents can reach under `AgentVaultTrafficPolicy.ServiceHosts` even if none of the session's services cover them, as an array or a comma-separated string (see [Exceptions](/documentation/platform/agent-vault/proxies#exceptions))
+  - `pollInterval` (number, optional): how often, in seconds, the proxy checks its sessions and settings with Infisical, from 10 to 300 (defaults to `60`)
+  - `description` (string, optional): what the proxy is for (up to 256 characters, without line breaks or tabs)
+
+**Returns:**
+- `AgentVaultProxyWithTokenResponse`: the proxy in `proxy`, and its proxy token in `proxyToken` (Infisical returns the token only once)
+
+To start the proxy with the proxy token, run one of the commands in [Create a proxy and start it](/documentation/platform/agent-vault/proxies#create-a-proxy-and-start-it).
+
+#### Update proxy
+
+The proxy's name, description, and settings that you don't pass stay as they are. If the proxy is running, it applies the changes within one poll interval.
+
+```typescript
+import { AgentVaultTrafficPolicy } from "@infisical/sdk";
+
+const proxy = await client.agentVault().proxies.update("<proxy-id>", {
+  name: "edge-proxy", // Optional
+  trafficPolicy: AgentVaultTrafficPolicy.ServiceHosts, // Optional
+  allowedHosts: ["registry.npmjs.org"], // Optional
+  pollInterval: 30, // Optional
+  description: "Proxy for CI runners" // Optional
+});
+```
+
+**Parameters:**
+- `proxyId` (string): the ID of the proxy
+- `options` (object):
+  - `name` (string, optional): the new name of the proxy
+  - `trafficPolicy` (AgentVaultTrafficPolicy, optional): the new traffic policy
+  - `allowedHosts` (string[] | string, optional): the new exceptions, which replace the current ones, or an empty array or string to remove every exception
+  - `pollInterval` (number, optional): the new poll interval in seconds, from 10 to 300
+  - `description` (string, optional): the new description, or an empty string to remove the description
+
+**Returns:**
+- `AgentVaultProxyWithSettings`: the updated proxy
+
+#### Delete proxy
+
+<Warning>
+  You can't undo deleting a proxy. To stop a proxy temporarily, [revoke its access](#revoke-proxy) instead.
+</Warning>
+
+```typescript
+const { id, name } = await client.agentVault().proxies.delete("<proxy-id>");
+```
+
+**Parameters:**
+- `proxyId` (string): the ID of the proxy
+
+**Returns:**
+- `Pick<AgentVaultProxy, "id" | "name">`: the deleted proxy's `id` and `name`
+
+#### Rotate proxy token
+
+Issue a new proxy token if the current token leaked. Rotating the token also restores a revoked proxy's access. The old token stops working right away. To restart the proxy and its agents, follow the steps in [Rotate a proxy's token](/documentation/platform/agent-vault/proxies#rotate-a-proxy’s-token).
+
+```typescript
+const { proxy, proxyToken } = await client.agentVault().proxies.rotateToken("<proxy-id>");
+```
+
+**Parameters:**
+- `proxyId` (string): the ID of the proxy
+
+**Returns:**
+- `AgentVaultProxyWithTokenResponse`: the proxy in `proxy`, and the new proxy token in `proxyToken` (Infisical returns the token only once)
+
+#### Revoke proxy
+
+Revoke a proxy's access if you think a machine that runs the proxy is compromised. The proxy stops attaching credentials to requests until you [rotate its token](#rotate-proxy-token).
+
+```typescript
+const proxy = await client.agentVault().proxies.revoke("<proxy-id>");
+```
+
+**Parameters:**
+- `proxyId` (string): the ID of the proxy
+
+**Returns:**
+- `AgentVaultProxyWithSettings`: the revoked proxy
+
+### `agentVault.accessBundles`
+
+`client.agentVault().accessBundles` manages [Agent Vault access bundles](/documentation/platform/agent-vault/access-bundles) and who they're [granted](/documentation/platform/agent-vault/access-bundles#grant-access) to. An access bundle is a list of services that an agent can use during a session.
+
+To use any method in this section except `list` and `get`, the client must log in as a user or machine identity with the **Admin** role in the [Agent Vault project](/documentation/platform/agent-vault/access-control#product-membership).
+
+<Note>
+  `agentVault` requires `@infisical/sdk` version 5.2.0 or newer.
+</Note>
+
+#### List access bundles
+
+```typescript
+const { accessBundles, totalCount } = await client.agentVault().accessBundles.list({
+  projectId: "<project-id>",
+  search: "release", // Optional
+  requiresSetup: false, // Optional
+  granted: true, // Optional
+  orderBy: "name", // Optional
+  orderDirection: "asc", // Optional
+  limit: 20, // Optional
+  offset: 0 // Optional
+});
+```
+
+**Parameters:**
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to list access bundles from
+  - `search` (string, optional): text to find in access bundle names and descriptions
+  - `requiresSetup` (boolean, optional): `true` to list only the access bundles with services that still need your [personal values](/documentation/platform/agent-vault/access-bundles#set-up-your-personal-values), or `false` to list the rest (defaults to listing both)
+  - `granted` (boolean, optional): `true` to list only the access bundles granted to you directly or through a group, or `false` to list the ones you can use only because you're an admin (defaults to listing both)
+  - `onBehalfOfUserEmail` (string, optional): the email address of a user, to list the access bundles that a session on behalf of the user could use (throws an `InfisicalSDKError` if you also pass `onBehalfOfUserId`)
+  - `onBehalfOfUserId` (string, optional): the ID of a user, to list the access bundles that a session on behalf of the user could use (throws an `InfisicalSDKError` if you also pass `onBehalfOfUserEmail`)
+  - `orderBy` (string, optional): what to sort the access bundles by, `name`, `serviceCount`, or `createdAt` (defaults to `createdAt`)
+  - `orderDirection` (string, optional): the direction to sort in, `asc` or `desc` (defaults to `desc`)
+  - `limit` (number, optional): the maximum number of access bundles to return, from 1 to 100 (defaults to `20`)
+  - `offset` (number, optional): the number of access bundles to skip (defaults to `0`)
+
+**Returns:**
+- `ListAgentVaultAccessBundlesResponse`: the access bundles in `accessBundles`, and the total number of matching access bundles in `totalCount` (in each access bundle, `servicesRequiringSetup` lists the services that still need your personal values)
+
+If the client logs in as a member, `list` returns only the access bundles granted to the member.
+
+If you pass `onBehalfOfUserEmail` or `onBehalfOfUserId`, the client must log in as a machine identity with a [delegation](/documentation/platform/agent-vault/sessions-on-behalf-of-users#set-up-a-delegation) that covers the user. `list` then returns only the access bundles that both the user and the machine identity can use, and `requiresSetup` and `servicesRequiringSetup` refer to the user's personal values. You can't combine `onBehalfOfUserEmail` or `onBehalfOfUserId` with `granted`.
+
+#### Get access bundle
+
+```typescript
+const accessBundle = await client.agentVault().accessBundles.get("<access-bundle-id>");
+```
+
+**Parameters:**
+- `accessBundleId` (string): the ID of the access bundle
+
+**Returns:**
+- `AgentVaultAccessBundleWithServices`: the access bundle, with its services in `services`
+
+#### Create access bundle
+
+```typescript
+const accessBundle = await client.agentVault().accessBundles.create({
+  projectId: "<project-id>",
+  name: "release",
+  description: "Release and deploy tools" // Optional
+});
+```
+
+**Parameters:**
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to create the access bundle in
+  - `name` (string): the name of the access bundle, in lowercase letters, numbers, and hyphens (up to 64 characters)
+  - `description` (string, optional): what the access bundle is for (up to 256 characters, without line breaks or tabs)
+
+**Returns:**
+- `AgentVaultAccessBundle`: the new access bundle
+
+Infisical grants the new access bundle to you, unless you're in the Agent Vault project only through a group. The SDK can't add services to an access bundle. To add them in Infisical, see [Services](/documentation/platform/agent-vault/services).
+
+#### Update access bundle
+
+The values that you don't pass stay as they are.
+
+```typescript
+const accessBundle = await client.agentVault().accessBundles.update("<access-bundle-id>", {
+  name: "release-tools", // Optional
+  description: "Release and deploy tools" // Optional
+});
+```
+
+**Parameters:**
+- `accessBundleId` (string): the ID of the access bundle
+- `options` (object):
+  - `name` (string, optional): the new name of the access bundle
+  - `description` (string, optional): the new description, or an empty string to remove the description
+
+**Returns:**
+- `AgentVaultAccessBundle`: the updated access bundle
+
+#### Delete access bundle
+
+When you delete an access bundle, the sessions that use it stop getting credentials for the bundle's services, as [Access changes](/documentation/platform/agent-vault/sessions#access-changes) describes. A session's [inline services](#create-a-session-with-inline-services) keep working, so to stop every credential that a session gets, [revoke the session](#revoke-session).
+
+```typescript
+const accessBundle = await client.agentVault().accessBundles.delete("<access-bundle-id>");
+```
+
+**Parameters:**
+- `accessBundleId` (string): the ID of the access bundle
+
+**Returns:**
+- `AgentVaultAccessBundle`: the deleted access bundle
+
+#### List grantees
+
+List the users, machine identities, and groups that an access bundle is granted to.
+
+```typescript
+import { AgentVaultMemberType } from "@infisical/sdk";
+
+const { members, totalCount } = await client.agentVault().accessBundles.listGrantees("<access-bundle-id>", {
+  actorType: AgentVaultMemberType.User, // Optional
+  search: "jsmith", // Optional
+  limit: 20, // Optional
+  offset: 0 // Optional
+});
+```
+
+**Parameters:**
+- `accessBundleId` (string): the ID of the access bundle
+- `options` (object, optional):
+  - `actorType` (AgentVaultMemberType, optional): `AgentVaultMemberType.User` (`"user"`), `AgentVaultMemberType.MachineIdentity` (`"machineIdentity"`), or `AgentVaultMemberType.Group` (`"group"`), to list only that kind of grantee (defaults to listing all three)
+  - `search` (string, optional): text to find in names, usernames, and email addresses
+  - `limit` (number, optional): the maximum number of grantees to return, from 1 to 100 (defaults to `20`)
+  - `offset` (number, optional): the number of grantees to skip (defaults to `0`)
+
+**Returns:**
+- `ListAgentVaultGranteesResponse`: the grantees in `members`, and the total number of matching grantees in `totalCount`
+
+#### List available grantees
+
+List the members of the Agent Vault project that an access bundle isn't granted to yet.
+
+```typescript
+import { AgentVaultMemberType } from "@infisical/sdk";
+
+const { members, totalCount } = await client.agentVault().accessBundles.listAvailableGrantees("<access-bundle-id>", {
+  actorType: AgentVaultMemberType.User, // Optional
+  search: "jsmith", // Optional
+  limit: 20, // Optional
+  offset: 0 // Optional
+});
+```
+
+**Parameters:**
+- `accessBundleId` (string): the ID of the access bundle
+- `options` (object, optional):
+  - `actorType` (AgentVaultMemberType, optional): `AgentVaultMemberType.User` (`"user"`), `AgentVaultMemberType.MachineIdentity` (`"machineIdentity"`), or `AgentVaultMemberType.Group` (`"group"`), to list only that kind of member (defaults to listing all three)
+  - `search` (string, optional): text to find in names, usernames, and email addresses
+  - `limit` (number, optional): the maximum number of members to return, from 1 to 100 (defaults to `20`)
+  - `offset` (number, optional): the number of members to skip (defaults to `0`)
+
+**Returns:**
+- `ListAgentVaultMembersResponse`: the members in `members`, and the total number of matching members in `totalCount`
+
+#### Grant access
+
+Grant an access bundle to users, machine identities, or groups. Pass at least one ID, and at most 100 in total.
+
+Each user, machine identity, and group must be a member of the Agent Vault project. If a user or machine identity is in the Agent Vault project only through a group, `grant` fails and grants nothing. Grant the access bundle to the group instead, or first [add the user or machine identity to the Agent Vault project](/documentation/platform/agent-vault/access-control#adding-members).
+
+```typescript
+const { members, skipped } = await client.agentVault().accessBundles.grant("<access-bundle-id>", {
+  userIds: ["<user-id>"], // Optional
+  machineIdentityIds: ["<machine-identity-id>"], // Optional
+  groupIds: ["<group-id>"] // Optional
+});
+```
+
+**Parameters:**
+- `accessBundleId` (string): the ID of the access bundle
+- `options` (object):
+  - `userIds` (string[], optional): the IDs of the users to grant the access bundle to
+  - `machineIdentityIds` (string[], optional): the IDs of the machine identities to grant the access bundle to
+  - `groupIds` (string[], optional): the IDs of the groups to grant the access bundle to
+
+**Returns:**
+- `GrantAgentVaultAccessBundleResponse`: the new grants in `members`, and the users, machine identities, and groups that already had the access bundle in `skipped`
+
+#### Revoke access
+
+Revoke an access bundle from users, machine identities, or groups. Pass at least one ID, and at most 100 in total.
+
+- If someone with the **Member** role no longer has any grant on the access bundle, the proxy stops attaching the bundle's credentials to their sessions and to the sessions that machine identities created on their behalf, as [Access changes](/documentation/platform/agent-vault/sessions#access-changes) describes (a session's inline services keep working, so to stop every credential, [revoke the session](#revoke-session))
+- Admins can use every access bundle without a grant, so their sessions keep getting credentials after you revoke their grants (to stop one of their agents, [revoke its session](#revoke-session))
+
+```typescript
+const { members, skipped } = await client.agentVault().accessBundles.revoke("<access-bundle-id>", {
+  userIds: ["<user-id>"], // Optional
+  machineIdentityIds: ["<machine-identity-id>"], // Optional
+  groupIds: ["<group-id>"] // Optional
+});
+```
+
+**Parameters:**
+- `accessBundleId` (string): the ID of the access bundle
+- `options` (object):
+  - `userIds` (string[], optional): the IDs of the users to revoke the access bundle from
+  - `machineIdentityIds` (string[], optional): the IDs of the machine identities to revoke the access bundle from
+  - `groupIds` (string[], optional): the IDs of the groups to revoke the access bundle from
+
+**Returns:**
+- `RevokeAgentVaultAccessBundleResponse`: the revoked grants in `members`, and the users, machine identities, and groups that didn't have the access bundle in `skipped`
+
+### `agentVault.delegations`
+
+`client.agentVault().delegations` manages [delegations](/documentation/platform/agent-vault/sessions-on-behalf-of-users), which let a machine identity [create sessions on behalf of users](#create-a-session-on-behalf-of-a-user).
+
+To use any method in this section, the client must log in as a user or machine identity with the **Admin** role in the [Agent Vault project](/documentation/platform/agent-vault/access-control#product-membership). A machine identity without the role can still get its own delegation.
+
+<Note>
+  `agentVault` requires `@infisical/sdk` version 5.2.0 or newer.
+</Note>
+
+#### List delegations
+
+```typescript
+const { delegations, totalCount } = await client.agentVault().delegations.list({
+  projectId: "<project-id>",
+  machineIdentityIds: ["<machine-identity-id>"], // Optional
+  limit: 100, // Optional
+  offset: 0 // Optional
+});
+```
+
+**Parameters:**
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to list delegations from
+  - `machineIdentityIds` (string[], optional): the IDs of the machine identities whose delegations to list (up to 100)
+  - `limit` (number, optional): the maximum number of delegations to return, from 1 to 100 (defaults to `100`)
+  - `offset` (number, optional): the number of delegations to skip (defaults to `0`)
+
+**Returns:**
+- `ListAgentVaultDelegationsResponse`: the delegations in `delegations`, and the total number of matching delegations in `totalCount` (without `missingAccessBundles`, which `get` returns)
+
+#### Get delegation
+
+Get which users a machine identity can create sessions on behalf of. If the machine identity has no delegation, `get` throws an `InfisicalSDKRequestError` whose `statusCode` is `404`.
+
+```typescript
+const delegation = await client.agentVault().delegations.get("<machine-identity-id>", {
+  projectId: "<project-id>"
+});
+```
+
+**Parameters:**
+- `machineIdentityId` (string): the ID of the machine identity
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to get the delegation from
+
+**Returns:**
+- `AgentVaultDelegationDetail`: the delegation, including `missingAccessBundles`
+
+`missingAccessBundles` lists the access bundles that the delegation's users can use and the machine identity can't. A session on behalf of a user can use only an access bundle that both the user and the machine identity can use, so the machine identity can't create sessions with those access bundles. If a machine identity without the **Admin** role gets its own delegation, `missingAccessBundles` is empty.
+
+#### Set delegation
+
+Set which users a machine identity can create sessions on behalf of. The new delegation replaces any delegation that the machine identity has.
+
+```typescript
+import { AgentVaultDelegationScope } from "@infisical/sdk";
+
+const delegation = await client.agentVault().delegations.set("<machine-identity-id>", {
+  projectId: "<project-id>",
+  scope: AgentVaultDelegationScope.Selected,
+  userIds: ["<user-id>"], // Optional
+  groupIds: ["<group-id>"] // Optional
+});
+```
+
+**Parameters:**
+- `machineIdentityId` (string): the ID of the machine identity, which must be a member of the Agent Vault project
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to set the delegation in
+  - `scope` (AgentVaultDelegationScope): either `AgentVaultDelegationScope.Selected` (`"selected"`) for only the users and groups that you pass, or `AgentVaultDelegationScope.AllMembers` (`"all-members"`) for every member of the Agent Vault project, admins included
+  - `userIds` (string[], optional): with `AgentVaultDelegationScope.Selected`, the IDs of the users that the machine identity can act on behalf of (up to 100)
+  - `groupIds` (string[], optional): with `AgentVaultDelegationScope.Selected`, the IDs of the groups whose members the machine identity can act on behalf of (up to 100)
+
+**Returns:**
+- `AgentVaultDelegationDetail`: the delegation, with `missingAccessBundles`
+
+With `AgentVaultDelegationScope.Selected`, pass at least one user or group. With `AgentVaultDelegationScope.AllMembers`, pass no users or groups. To stop the machine identity from acting on behalf of anyone, [delete the delegation](#delete-delegation).
+
+Each user and group must be a member of the Agent Vault project. If a user is in the Agent Vault project only through a group, pass the group instead.
+
+#### List available users and groups
+
+List the users and groups in the Agent Vault project that you can add to a machine identity's delegation.
+
+```typescript
+import { AgentVaultMemberType } from "@infisical/sdk";
+
+const { members, totalCount } = await client.agentVault().delegations.listAvailableSubjects("<machine-identity-id>", {
+  projectId: "<project-id>",
+  actorType: AgentVaultMemberType.User, // Optional
+  search: "jsmith", // Optional
+  limit: 20, // Optional
+  offset: 0 // Optional
+});
+```
+
+**Parameters:**
+- `machineIdentityId` (string): the ID of the machine identity
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to list users and groups from
+  - `actorType` (AgentVaultMemberType, optional): either `AgentVaultMemberType.User` (`"user"`) to list only users or `AgentVaultMemberType.Group` (`"group"`) to list only groups (defaults to listing both)
+  - `search` (string, optional): text to find in user names, usernames, email addresses, and group names
+  - `limit` (number, optional): the maximum number of users and groups to return, from 1 to 100 (defaults to `20`)
+  - `offset` (number, optional): the number of users and groups to skip (defaults to `0`)
+
+**Returns:**
+- `ListAgentVaultMembersResponse`: the users and groups in `members`, and the total number of matching users and groups in `totalCount`
+
+#### Add users and groups
+
+Add users and groups to a machine identity's delegation. The users and groups that are already in the delegation stay in it. Pass at least one ID.
+
+- If the machine identity has no delegation, `addSubjects` creates one with the `AgentVaultDelegationScope.Selected` scope
+- If the delegation covers all members, you can't add users or groups to it
+
+```typescript
+const delegation = await client.agentVault().delegations.addSubjects("<machine-identity-id>", {
+  projectId: "<project-id>",
+  userIds: ["<user-id>"], // Optional
+  groupIds: ["<group-id>"] // Optional
+});
+```
+
+**Parameters:**
+- `machineIdentityId` (string): the ID of the machine identity
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) that the delegation is in
+  - `userIds` (string[], optional): the IDs of the users to add (up to 100)
+  - `groupIds` (string[], optional): the IDs of the groups to add (up to 100)
+
+**Returns:**
+- `AgentVaultDelegationDetail`: the delegation after the change, with `missingAccessBundles`
+
+#### Remove users and groups
+
+Remove users and groups from a machine identity's delegation. Pass at least one ID.
+
+- If the delegation no longer covers a user, the proxy refuses the sessions that the machine identity created on behalf of the user until the delegation covers the user again (to end those sessions for good, [revoke them](#revoke-session))
+- If you remove the last user or group, Infisical deletes the delegation
+
+```typescript
+const delegation = await client.agentVault().delegations.removeSubjects("<machine-identity-id>", {
+  projectId: "<project-id>",
+  userIds: ["<user-id>"], // Optional
+  groupIds: ["<group-id>"] // Optional
+});
+```
+
+**Parameters:**
+- `machineIdentityId` (string): the ID of the machine identity
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) that the delegation is in
+  - `userIds` (string[], optional): the IDs of the users to remove (up to 100)
+  - `groupIds` (string[], optional): the IDs of the groups to remove (up to 100)
+
+**Returns:**
+- `AgentVaultDelegationDetail | null`: the delegation after the change, with `missingAccessBundles`, or `null` if Infisical deleted the delegation
+
+#### Delete delegation
+
+Stop a machine identity from creating sessions on behalf of users. The proxy refuses the sessions that the machine identity already created on behalf of users until a delegation covers those users again. To end those sessions for good, [revoke them](#revoke-session).
+
+```typescript
+const delegation = await client.agentVault().delegations.delete("<machine-identity-id>", {
+  projectId: "<project-id>"
+});
+```
+
+**Parameters:**
+- `machineIdentityId` (string): the ID of the machine identity
+- `options` (object):
+  - `projectId` (string): the ID of the [Agent Vault project](/documentation/platform/agent-vault/projects#find-the-project-id) to delete the delegation from
+
+**Returns:**
+- `AgentVaultDelegation`: the deleted delegation, without `missingAccessBundles`

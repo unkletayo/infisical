@@ -1,112 +1,138 @@
-import type { UserWsKeyPair } from "../keys/types";
+import { ProjectPermissionSecretActions } from "@app/context/ProjectPermissionContext/types";
+import { Reminder } from "@app/hooks/api/reminders/types";
+
+import type { TSecretApprovalRequest } from "../secretApprovalRequest/types";
+import { PendingAction, TSecretFolder } from "../secretFolders/types";
 import type { WsTag } from "../tags/types";
 
-export type EncryptedSecret = {
-  _id: string;
-  version: number;
-  workspace: string;
-  type: "shared" | "personal";
-  environment: string;
-  secretKeyCiphertext: string;
-  secretKeyIV: string;
-  secretKeyTag: string;
-  secretValueCiphertext: string;
-  secretValueIV: string;
-  secretValueTag: string;
-  __v: number;
-  createdAt: string;
-  updatedAt: string;
-  secretCommentCiphertext: string;
-  secretCommentIV: string;
-  secretCommentTag: string;
-  tags: WsTag[];
-};
+export enum SecretType {
+  Shared = "shared",
+  Personal = "personal"
+}
 
-export type DecryptedSecret = {
-  _id: string;
+// both personal and shared secret stitched together for dashboard
+export type SecretV3RawSanitized = {
+  id: string;
+  version: number;
   key: string;
-  value: string;
-  comment: string;
-  tags: WsTag[];
+  value?: string;
+  secretValueHidden: boolean;
+  comment?: string;
+  reminderRepeatDays?: number | null;
+  reminderNote?: string | null;
+  reminderRecipients?: string[];
+  tags?: WsTag[];
   createdAt: string;
   updatedAt: string;
   env: string;
+  path?: string;
   valueOverride?: string;
   idOverride?: string;
   overrideAction?: string;
   folderId?: string;
+  skipMultilineEncoding?: boolean | null;
+  secretMetadata?: { key: string; value: string; isEncrypted?: boolean }[];
+  isReminderEvent?: boolean;
+  isRotatedSecret?: boolean;
+  isHoneyTokenSecret?: boolean;
+  rotationId?: string;
+  isPending?: boolean;
+  hasPendingValueChange?: boolean;
+  pendingAction?: PendingAction;
+  reminder?: Reminder;
+  isEmpty?: boolean;
+  isOverrideEmpty?: boolean;
+  revokedProjectFolderGrant?: boolean;
 };
 
-export type EncryptedSecretVersion = {
+export type SecretV3Raw = {
+  id: string;
   _id: string;
-  secret: string;
-  version: number;
-  workspace: string;
-  type: string;
+  project: string;
   environment: string;
-  isDeleted: boolean;
-  secretKeyCiphertext: string;
-  secretKeyIV: string;
-  secretKeyTag: string;
-  secretValueCiphertext: string;
-  secretValueIV: string;
-  secretValueTag: string;
-  tags: WsTag[];
-  __v: number;
+  version: number;
+  type: string;
+  secretValueHidden: boolean;
+  secretKey: string;
+  secretPath: string;
+  secretValue?: string;
+  secretComment?: string;
+  secretReminderNote?: string;
+  secretReminderRepeatDays?: number;
+  secretMetadata?: { key: string; value: string; isEncrypted?: boolean }[];
+  skipMultilineEncoding?: boolean | null;
+  metadata?: Record<string, string>;
+  tags?: WsTag[];
   createdAt: string;
   updatedAt: string;
+  isRotatedSecret?: boolean;
+  isHoneyTokenSecret?: boolean;
+  rotationId?: string;
+  reminder?: Reminder;
+  isEmpty?: boolean;
+  revokedProjectFolderGrant?: boolean;
+};
+
+export type SecretV3RawResponse = {
+  secrets: SecretV3Raw[];
+  imports: {
+    secretPath: string;
+    environment: string;
+    folderId: string;
+    secrets: SecretV3Raw[];
+  }[];
+};
+
+export type SecretVersions = {
+  id: string;
+  secretId: string;
+  version: number;
+  project: string;
+  type: SecretType;
+  isDeleted: boolean;
+  envId: string;
+  secretKey: string;
+  secretValue?: string;
+  secretValueHidden: boolean;
+  secretComment?: string;
+  tags: WsTag[];
+  __v: number;
+  skipMultilineEncoding?: boolean | null;
+  createdAt: string;
+  updatedAt: string;
+  actor?: {
+    actorId?: string | null;
+    actorType?: string | null;
+    name?: string | null;
+    membershipId?: string | null;
+    groupId?: string | null;
+  } | null;
+  isRedacted: boolean;
+  redactedByActor: {
+    username: string | null;
+    email: string | null;
+    projectMembershipId: string | null;
+  } | null;
+  redactedAt: string | null;
+  redactedByUserId: string | null;
 };
 
 // dto
-type SecretTagArg = { _id: string; name: string; slug: string };
-
-export type UpdateSecretArg = {
-  _id: string;
-  folderId?: string;
-  type: "shared" | "personal";
-  secretName: string;
-  secretKeyCiphertext: string;
-  secretKeyIV: string;
-  secretKeyTag: string;
-  secretValueCiphertext: string;
-  secretValueIV: string;
-  secretValueTag: string;
-  secretCommentCiphertext: string;
-  secretCommentIV: string;
-  secretCommentTag: string;
-  tags: SecretTagArg[];
-};
-
-export type CreateSecretArg = Omit<UpdateSecretArg, "_id">;
-
-export type DeleteSecretArg = { _id: string };
-
-export type BatchSecretDTO = {
-  workspaceId: string;
-  folderId: string;
+export type TGetProjectSecretsKey = {
+  projectId: string;
   environment: string;
-  requests: Array<
-    | { method: "POST"; secret: CreateSecretArg }
-    | { method: "PATCH"; secret: UpdateSecretArg }
-    | { method: "DELETE"; secret: DeleteSecretArg }
-  >;
+  secretPath?: string;
+  includeImports?: boolean;
+  viewSecretValue?: boolean;
+  expandSecretReferences?: boolean;
+  recursive?: boolean;
 };
 
-export type GetProjectSecretsDTO = {
-  workspaceId: string;
-  env: string | string[];
-  decryptFileKey: UserWsKeyPair;
-  folderId?: string;
-  secretPath?: string;
-  isPaused?: boolean;
-  include_imports?: boolean;
-  onSuccess?: (data: DecryptedSecret[]) => void;
-};
+export type TGetProjectSecretsDTO = TGetProjectSecretsKey;
 
 export type TGetProjectSecretsAllEnvDTO = {
-  workspaceId: string;
+  projectId: string;
   envs: string[];
-  decryptFileKey: UserWsKeyPair;
   folderId?: string;
   secretPath?: string;
   isPaused?: boolean;
@@ -116,34 +142,209 @@ export type GetSecretVersionsDTO = {
   secretId: string;
   limit: number;
   offset: number;
-  decryptFileKey: UserWsKeyPair;
+};
+
+export type TGetSecretVersionValue = {
+  secretId: string;
+  version: number;
+};
+
+export type TSecretVersionValue = {
+  value: string;
+};
+
+export type TGetSecretAccessListDTO = {
+  projectId: string;
+  environment: string;
+  secretPath: string;
+  secretKey: string;
+  includeAllEntities?: boolean;
+};
+
+export type TCreateCommitResponse = {
+  commitId: string | null;
+  approval: Pick<
+    TSecretApprovalRequest,
+    "id" | "slug" | "folderId" | "status" | "hasMerged" | "createdAt" | "updatedAt"
+  > | null;
+  secrets: { created: SecretV3Raw[]; updated: SecretV3Raw[]; deleted: SecretV3Raw[] };
+  folders: { created: TSecretFolder[]; updated: TSecretFolder[]; deleted: TSecretFolder[] };
 };
 
 export type TCreateSecretsV3DTO = {
-  latestFileKey: UserWsKeyPair;
-  secretName: string;
+  secretKey: string;
   secretValue: string;
   secretComment: string;
+  skipMultilineEncoding?: boolean | null;
   secretPath: string;
-  workspaceId: string;
+  projectId: string;
   environment: string;
-  type: string;
+  type: SecretType;
+  tagIds?: string[];
+  secretMetadata?: { key: string; value: string; isEncrypted?: boolean }[];
 };
 
 export type TUpdateSecretsV3DTO = {
-  latestFileKey: UserWsKeyPair;
-  workspaceId: string;
+  projectId: string;
   environment: string;
-  type: string;
   secretPath: string;
-  secretName: string;
-  secretValue: string;
+  type: SecretType;
+  skipMultilineEncoding?: boolean | null;
+  newSecretName?: string;
+  secretKey: string;
+  secretValue?: string;
+  secretComment?: string;
+  secretReminderRepeatDays?: number | null;
+  secretReminderNote?: string | null;
+  tagIds?: string[];
+  secretMetadata?: { key: string; value: string; isEncrypted?: boolean }[];
+  secretReminderRecipients?: string[] | null;
 };
 
 export type TDeleteSecretsV3DTO = {
-  workspaceId: string;
+  projectId: string;
   environment: string;
-  type: string;
+  type: SecretType;
   secretPath: string;
-  secretName: string;
+  secretKey: string;
+  secretId?: string;
+};
+
+export type TCreateSecretBatchDTO = {
+  projectId: string;
+  environment: string;
+  secretPath: string;
+  secrets: Array<{
+    secretKey: string;
+    secretValue: string;
+    secretComment: string;
+    skipMultilineEncoding?: boolean | null;
+    type: SecretType;
+    tagIds?: string[];
+    secretMetadata?: { key: string; value: string; isEncrypted?: boolean }[];
+    metadata?: {
+      source?: string;
+    };
+  }>;
+};
+
+export type TUpdateSecretBatchDTO = {
+  projectId: string;
+  environment: string;
+  secretPath: string;
+  secrets: Array<{
+    type: SecretType;
+    secretKey: string;
+    secretValue?: string;
+    secretComment?: string;
+    skipMultilineEncoding?: boolean | null;
+    tagIds?: string[];
+    secretMetadata?: { key: string; value: string; isEncrypted?: boolean }[];
+    metadata?: {
+      source?: string;
+    };
+  }>;
+};
+
+export type TDeleteSecretBatchDTO = {
+  projectId: string;
+  environment: string;
+  secretPath: string;
+  secrets: Array<{
+    secretKey: string;
+    type: SecretType;
+  }>;
+};
+
+export type TMoveSecretsDTO = {
+  projectId: string;
+  projectSlug: string;
+  sourceEnvironment: string;
+  sourceSecretPath: string;
+  destinationEnvironment: string;
+  destinationSecretPath: string;
+  secretIds: string[];
+  shouldOverwrite: boolean;
+};
+
+export type TDuplicateSecretAttributes = {
+  value?: boolean;
+  comment?: boolean;
+  tags?: boolean;
+  metadata?: boolean;
+  skipMultilineEncoding?: boolean;
+};
+
+export type TDuplicateSecretDTO = {
+  projectId: string;
+  sourceEnvironment: string;
+  sourceSecretPath: string;
+  destinationEnvironment: string;
+  destinationSecretPath: string;
+  secretIds: string[];
+  shouldOverwrite: boolean;
+  attributesToCopy: TDuplicateSecretAttributes;
+};
+
+export type TDuplicateSecretResult =
+  | {
+      sourceSecretId: string;
+      sourceSecretKey: string;
+      destinationSecretId: string;
+    }
+  | {
+      sourceSecretId: string;
+      sourceSecretKey: string;
+      approval: {
+        id: string;
+        slug: string;
+        status: string;
+        committerUserId: string;
+      };
+    };
+
+export type TDuplicateSecretResponse = {
+  results: TDuplicateSecretResult[];
+};
+
+export type TGetSecretReferenceTreeDTO = {
+  secretKey: string;
+  secretPath: string;
+  environmentSlug: string;
+  projectId: string;
+};
+
+export type TSecretReferenceTraceNode = {
+  key: string;
+  value?: string;
+  environment: string;
+  secretPath: string;
+  children: TSecretReferenceTraceNode[];
+};
+
+export type TGetSecretReferencesDTO = {
+  secretKey: string;
+  secretPath: string;
+  environment: string;
+  projectId: string;
+};
+
+export type TSecretDependencyTreeNode = {
+  key: string;
+  environment: string;
+  secretPath: string;
+  project?: { id: string; slug: string; name: string };
+  children: TSecretDependencyTreeNode[];
+};
+
+export type SecretAccessListEntry = {
+  allowedActions: ProjectPermissionSecretActions[];
+  id: string;
+  membershipId: string;
+  name: string;
+};
+
+export type SecretAccessListGroupEntry = SecretAccessListEntry & {
+  userIds: string[];
+  identityIds: string[];
 };

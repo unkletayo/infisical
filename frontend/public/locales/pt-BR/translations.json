@@ -40,8 +40,8 @@
   },
   "common": {
     "head-title": "{{title}} | Infisical",
+    "head-title-scoped": "{{title}} · {{scope}} | Infisical",
     "error_project-already-exists": "Já exite um projeto com este nome.",
-    "no-mobile": "Para usar o Infisical, faça o login através de um dispositivo com dimensões maiores.",
     "email": "Email",
     "password": "Senha",
     "first-name": "Primeiro Nome",
@@ -210,10 +210,15 @@
       "current": "Senha atual",
       "current-wrong": "A senha atual pode estar errada",
       "new": "Nova Senha",
-      "validate-base": "A senha deve conter pelo menos:",
-      "validate-length": "14 caracteres",
-      "validate-case": "1 caractere minúsculo",
-      "validate-number": "1 número"
+      "validate-base": "A senha deve conter:",
+      "validate-tooShort": "pelo menos 14 caracteres",
+      "validate-tooLong": "no máximo 100 caracteres",
+      "validate-noLetterChar": "pelo menos 1 caractere alfabético",
+      "validate-noNumOrSpecialChar": "pelo menos 1 número ou caractere especial",
+      "validate-repeatedChar": "no máximo 3 caracteres repetidos e consecutivos",
+      "validate-escapeChar": "Nenhum caractere de escape permitido.",
+      "validate-lowEntropy": "A senha contém dados sensíveis.",
+      "validate-breached": "A senha foi encontrada em uma violação de dados."
     },
     "token": {
       "service-tokens": "Tokens de Serviço",
@@ -261,8 +266,8 @@
       "project-id-description2": "Para obter mais orientações, incluindo trechos de código para várias linguagens e frameworks, consulte ",
       "auto-generated": "Este é o identificador exclusivo - gerado automaticamente - do seu projeto. Não pode ser alterado.",
       "docs": "Documentação do Infisical",
-      "auto-capitalization": "Converter em caixa alta automaticamente",
-      "auto-capitalization-description": "Por padrão, Infisical converte automaticamente as chaves em caixa alta. Se você quiser desativar essa funcionalidade, pode fazê-lo aqui."
+      "enforce-capitalization": "Aplicar capitalização",
+      "enforce-capitalization-description": "De acordo com os padrões, o Infisical impõe chaves secretas em letras maiúsculas. Se quiser desabilitar esse recurso, você pode fazer isso aqui."
     }
   },
   "signup": {
@@ -278,6 +283,9 @@
     "step1-submit": "Iniciar",
     "step2-message": "<wrapper>Enviamos um e-mail de verificação para</wrapper><email>{{email}}</email>",
     "step2-code-error": "Ops. Seu código está errado. Por favor, tente novamente.",
+    "step2-code-error-tries": "Ops! Código incorreto, mais {{triesLeft}} tentativas.",
+    "step2-code-error-tries-singular": "Ops! Código incorreto, mais 1 tentativa.",
+    "step2-code-error-exhausted": "Solicite um novo código.",
     "step2-spam-alert": "Certifique-se de verificar sua caixa de entrada de spam.",
     "step3-message": "Quase lá!",
     "step4-message": "Guarde o seu Kit de Emergência",

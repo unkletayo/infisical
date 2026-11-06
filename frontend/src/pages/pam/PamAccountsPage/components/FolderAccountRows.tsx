@@ -1,0 +1,115 @@
+import { Folder } from "lucide-react";
+
+import { Badge, RowLink, TableCell, TableRow } from "@app/components/v3";
+import { useOrganization } from "@app/context";
+import {
+  PamAccountType,
+  PamFolderCallerAccess,
+  TAccessiblePamAccount,
+  TPamAccountListItem,
+  TPamFolderWithCount
+} from "@app/hooks/api/pam";
+import { PamSheetTab } from "@app/hooks/usePamSheetState";
+
+import { FolderAccountRow } from "./FolderAccountRow";
+import { FolderActionsMenu } from "./FolderActionsMenu";
+
+type Props = {
+  folder: TPamFolderWithCount;
+  search: string;
+  // Matching accounts, supplied by the page's filter query. Undefined when nothing is filtered.
+  accounts?: TPamAccountListItem[];
+  onOpenAccount: (accountId: string, tab?: PamSheetTab) => void;
+  onLaunchAccount: (account: TAccessiblePamAccount) => void;
+  onRequestAccess: (account: TAccessiblePamAccount) => void;
+  onViewCredentials: (account: TAccessiblePamAccount) => void;
+  onRequestCredentialAccess: (account: TAccessiblePamAccount) => void;
+  onDeleteAccount: (accountId: string, accountName: string, accountType: PamAccountType) => void;
+  onOpenFolder: (tab?: PamSheetTab) => void;
+  onFolderAddAccount: () => void;
+  onFolderDelete: () => void;
+  onFolderJoinAsAdmin: () => void;
+};
+
+export const FolderAccountRows = ({
+  folder,
+  search,
+  accounts,
+  onOpenAccount,
+  onLaunchAccount,
+  onRequestAccess,
+  onViewCredentials,
+  onRequestCredentialAccess,
+  onDeleteAccount,
+  onOpenFolder,
+  onFolderAddAccount,
+  onFolderDelete,
+  onFolderJoinAsAdmin
+}: Props) => {
+  const { currentOrg } = useOrganization();
+  const count = accounts ? accounts.length : folder.accountCount;
+  // Only org admins are sent folders they hold no membership on; opening one means joining it.
+  const isNotMember = folder.callerAccess === PamFolderCallerAccess.None;
+
+  return (
+    <>
+      <TableRow
+        linked={!isNotMember}
+        className={isNotMember ? "cursor-pointer select-none" : undefined}
+        onClick={isNotMember ? onFolderJoinAsAdmin : undefined}
+      >
+        <TableCell>
+          <div className="flex items-center gap-2.5">
+            <Folder className="size-5 shrink-0 text-product-pam" />
+            {isNotMember ? (
+              <>
+                <span className="shrink-0 font-medium text-foreground">{folder.name}</span>
+                <Badge variant="neutral">Not a Member</Badge>
+              </>
+            ) : (
+              <>
+                <RowLink
+                  to="/organizations/$orgId/pam/accounts/$folderId"
+                  params={{ orgId: currentOrg.id, folderId: folder.id }}
+                  className="shrink-0 font-medium text-foreground"
+                >
+                  {folder.name}
+                </RowLink>
+                <span className="shrink-0 text-xs text-muted">({count})</span>
+                {folder.description && (
+                  <span className="max-w-md truncate text-muted">{folder.description}</span>
+                )}
+              </>
+            )}
+          </div>
+        </TableCell>
+        <TableCell className="w-20">
+          <div className="flex items-center justify-end gap-1">
+            <FolderActionsMenu
+              folder={folder}
+              onOpenTab={(tab) => onOpenFolder(tab)}
+              onAddAccount={onFolderAddAccount}
+              onDelete={onFolderDelete}
+              onJoinAsAdmin={onFolderJoinAsAdmin}
+            />
+          </div>
+        </TableCell>
+      </TableRow>
+
+      {accounts?.map((account) => (
+        <FolderAccountRow
+          key={account.id}
+          account={account}
+          search={search}
+          indented
+          onOpenAccount={onOpenAccount}
+          onLaunchAccount={onLaunchAccount}
+          onRequestAccess={onRequestAccess}
+          onViewCredentials={onViewCredentials}
+          onRequestCredentialAccess={onRequestCredentialAccess}
+          onDeleteAccount={onDeleteAccount}
+        />
+      ))}
+    </>
+  );
+};

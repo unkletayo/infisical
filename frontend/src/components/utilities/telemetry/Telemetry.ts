@@ -1,50 +1,50 @@
-/* eslint-disable */
-import { PostHog } from 'posthog-js';
-import { initPostHog } from '@app/components/analytics/posthog';
-import { ENV } from '@app/components/utilities/config';
+import type { PostHog } from "posthog-js";
 
-declare let TELEMETRY_CAPTURING_ENABLED: any;
+import { getPostHog } from "@app/components/analytics/posthog";
 
-class Capturer {
-  api: PostHog;
+type Capturer = {
+  api: PostHog | undefined;
+  capture: (item: string, properties?: Record<string, unknown>) => void;
+  identify: (id: string, email?: string) => void;
+};
 
-  constructor() {
-    this.api = initPostHog()!;
-  }
+const createCapturer = (): Capturer => {
+  const api = getPostHog();
 
-  capture(item: string) {
-    if (ENV === 'production' && TELEMETRY_CAPTURING_ENABLED) {
+  return {
+    api,
+    capture(item, properties) {
       try {
-        this.api.capture(item);
+        api?.capture(item, properties);
       } catch (error) {
-        console.error('PostHog', error);
+        console.error("PostHog", error);
       }
-    }
-  }
-
-  identify(id: string, email?: string) {
-    if (ENV === 'production' && TELEMETRY_CAPTURING_ENABLED) {
+    },
+    identify(id, email) {
       try {
-        this.api.identify(id, {
-          email: email
+        api?.identify(id, {
+          email
         });
       } catch (error) {
-        console.error('PostHog', error);
+        console.error("PostHog", error);
       }
     }
-  }
-}
+  };
+};
 
 export default class Telemetry {
   static instance: Capturer;
 
+  private readonly capturer: Capturer;
+
   constructor() {
     if (!Telemetry.instance) {
-      Telemetry.instance = new Capturer();
+      Telemetry.instance = createCapturer();
     }
+    this.capturer = Telemetry.instance;
   }
 
   getInstance() {
-    return Telemetry.instance;
+    return this.capturer;
   }
 }

@@ -1,37 +1,74 @@
 ---
 title: "Service token"
-description: "Infisical service tokens allows you to programmatically interact with Infisical"
+description: "Infisical service tokens allow users to programmatically interact with Infisical."
 ---
 
-Service tokens play an integral role in allowing programmatic interactions with an Infisical project, functioning as digital token that open access to specific project resources such as secrets.
+Service tokens are authentication credentials that services can use to access designated endpoints in the Infisical API to manage project resources like secrets.
+Each service token can be provisioned scoped access to select environment(s) and path(s) within them.
 
-When you generate a service token, you can define its access level, not only by specifying the paths and environments it can interact with, but also by determining the level of mutation it can perform, such as read-only, write, or both. 
+## Service tokens
 
-This level of control not only ensures maximum flexibility but also significantly enhances security as it allows you to define fine grained access to project resources. 
+You can manage service tokens in Access Control > Service Tokens (tab).
 
+### Service token (current)
+
+Service Token (ST) is the current widely-used authentication method for managing secrets.
+
+Here's a few pointers to get you acquainted with it:
+
+- Each service token is of the form `st.<id>.<secret>`. Send it in the `Authorization` header as `Bearer st.<id>.<secret>` when calling the Infisical API.
+- ST supports expiration; it gets deleted automatically upon expiration.
+- ST supports provisioning `read` and/or `write` permissions broadly applied to all accessible environment(s) and path(s).
+- ST isn't editable.
 
 ## Creating a service token
 
-To generate the token, head over to your project settings as shown below. On creating a service token you can scope it to a path to limit the access.
+To create a service token, head to Access Control > Service Tokens as shown below and press **Create token**.
 
-![token add](../../images/project-token-add.png)
+![token add](../../images/project-token-old-add.png)
 
-### Service token permissions
-![token add](../../images/service-token-permissions.png)
+Now input any token configuration details such as which environment(s) and path(s) you'd like to provision
+the token access to. Here's some guidance for each field:
 
+- Name: A friendly name for the token.
+- Scopes: The environment(s) and path(s) the token should have access to.
+- Permissions: You can indicate whether or not the token should have `read/write` access to the paths.
+  Also, note that Infisical supports [glob patterns](https://www.malikbrowne.com/blog/a-beginners-guide-glob-patterns/) when defining access scopes to path(s).
+- Expiration: The time when this token should be rendered inactive.
 
-Service tokens can be scoped to multiple environments and paths. To add a new permission, choose the environment you want to give access to and then choose the path you'd like to give access to within that environment.
+![token add](../../images/project-token-old-permissions.png)
 
-Permissions for paths are powered by [Glob pattern](https://www.malikbrowne.com/blog/a-beginners-guide-glob-patterns/). This means you can create advanced folder permissions with a simple Glob patterns.
+In the above screenshot, you can see that we're creating a token with `read` access to all subfolders at any depth
+of the `/common` path within the development environment of the project; the token expires in 6 months and can be used from any IP address.
 
-**Examples of common Glob pattens**
+<Note>
+  For a deeper understanding of service tokens, it's recommended to read [this
+  guide](https://infisical.com/docs/internals/service-tokens).
+</Note>
 
-<Accordion title="Examples of common Glob pattens">
-  1. `/**`: This pattern matches all folders at any depth in the directory structure. For example, it would match folders like `/folder1/`, `/folder1/subfolder/`, and so on.
+**FAQ**
 
-  2. `/*`: This pattern matches all immediate subfolders in the current directory. It does not match any folders at a deeper level. For example, it would match folders like `/folder1/`, `/folder2/`, but not `/folder1/subfolder/`.
+<AccordionGroup>
+  <Accordion title="Why is the Infisical API rejecting my service token?">
+      There are a few reasons for why this might happen:
 
-  3. `/*/*`: This pattern matches all subfolders at a depth of two levels in the current directory. It does not match any folders at a shallower or deeper level. For example, it would match folders like `/folder1/subfolder/`, `/folder2/subfolder/`, but not `/folder1/` or `/folder1/subfolder/subsubfolder/`.
+    - The service token has expired.
+    - The service token is insufficiently permissioned to interact with the secrets in the given environment and path.
+    - (If using ST V3) The service token has not been activated yet.
+    - (If using ST V3) The service token is being used from an untrusted IP.
 
-  4. `/folder1/*`: This pattern matches all immediate subfolders within the `/folder1/` directory. It does not match any folders outside of `/folder1/`, nor does it match any subfolders within those immediate subfolders. For example, it would match folders like `/folder1/subfolder1/`, `/folder1/subfolder2/`, but not `/folder2/subfolder/`.
-</Accordion>
+  </Accordion>
+  <Accordion title="Can you provide examples for using glob patterns?">
+    **Important:** The `/` character acts as a path separator. A single `*` doesn't match across `/` boundaries — use `**` to match across multiple path segments.
+
+    | Pattern | Matches | Does not match |
+    |---------|---------|----------------|
+    | `/**` | `/folder1/`, `/folder1/subfolder/`, any depth | — |
+    | `/*` | `/folder1/`, `/folder2/` | `/folder1/subfolder/` |
+    | `/*/*` | `/folder1/subfolder/` | `/folder1/`, `/a/b/c/` |
+    | `/folder1/*` | `/folder1/subfolder1/`, `/folder1/subfolder2/` | `/folder2/subfolder/`, `/folder1/a/b/` |
+    | `/services/**` | `/services/api/`, `/services/api/v1/` | `/other/api/` |
+    | `/{dev,staging}/*` | `/dev/secrets/`, `/staging/config/` | `/prod/secrets/` |
+
+  </Accordion>
+</AccordionGroup>

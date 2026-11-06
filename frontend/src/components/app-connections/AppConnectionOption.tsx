@@ -1,0 +1,73 @@
+import { ReactNode } from "react";
+import { CheckIcon, PlusIcon } from "lucide-react";
+
+import {
+  Badge,
+  OrgIcon,
+  SubOrgIcon,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@app/components/v3";
+import { useOrganization } from "@app/context";
+import { TAvailableAppConnection } from "@app/hooks/api/appConnections";
+
+type TAppConnectionOptionContentProps = {
+  data: Pick<TAvailableAppConnection, "id" | "name"> & { projectId?: string | null };
+  createLabel?: ReactNode;
+  isOnlyOption?: boolean;
+  isSelected?: boolean;
+  label?: ReactNode;
+};
+
+export const AppConnectionOptionContent = ({
+  data,
+  createLabel,
+  isOnlyOption = false,
+  isSelected = false,
+  label
+}: TAppConnectionOptionContentProps) => {
+  const isCreateOption = data.id === "_create" || data.id.startsWith("_create:");
+  const { isSubOrganization } = useOrganization();
+
+  return (
+    <div className="flex flex-row items-center justify-between">
+      {isCreateOption ? (
+        <div
+          className={`flex items-center gap-x-1 ${isOnlyOption ? "text-foreground" : "text-accent"}`}
+        >
+          <PlusIcon className="size-4" />
+          <span className="mr-auto">{createLabel ?? "Create New Connection"}</span>
+        </div>
+      ) : (
+        <>
+          <p className="mr-auto truncate">{data.name}</p>
+          {label}
+          {!data.projectId && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  {isSubOrganization ? (
+                    <Badge variant="sub-org">
+                      <SubOrgIcon />
+                      Sub-Organization
+                    </Badge>
+                  ) : (
+                    <Badge variant="org">
+                      <OrgIcon />
+                      Organization
+                    </Badge>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                This connection belongs to your {isSubOrganization ? "sub-" : ""}organization.
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {isSelected && <CheckIcon className="ml-2 size-4" />}
+        </>
+      )}
+    </div>
+  );
+};

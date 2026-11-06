@@ -1,0 +1,149 @@
+import { useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { format } from "date-fns";
+
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Loader,
+  Pagination,
+  RowLink,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@app/components/v3";
+import { useProject } from "@app/context";
+import { getInstancePinningLink } from "@app/helpers/project";
+import { useListPkiInstallations } from "@app/hooks/api";
+import { getEndpoint, getGatewayLabel } from "@app/pages/cert-manager/pki-discovery-utils";
+
+type Props = {
+  discoveryId: string;
+  projectId: string;
+  isScanRunning: boolean;
+};
+
+const PER_PAGE_INIT = 10;
+const SCAN_IN_FLIGHT_POLL_MS = 5000;
+
+export const DiscoveryInstallationsSection = ({ discoveryId, projectId, isScanRunning }: Props) => {
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(PER_PAGE_INIT);
+  const { currentProject } = useProject();
+
+  const { data, isPending } = useListPkiInstallations(
+    {
+      projectId,
+      discoveryId,
+      offset: (page - 1) * perPage,
+      limit: perPage
+    },
+    { refetchInterval: isScanRunning ? SCAN_IN_FLIGHT_POLL_MS : false }
+  );
+
+  const installations = data?.installations || [];
+  const totalCount = data?.totalCount || 0;
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <CardTitle>Installations</CardTitle>
+        <CardDescription>Certificate installations discovered by this job</CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isPending && (
+          <div className="flex h-40 w-full items-center justify-center">
+            <Loader />
+          </div>
+        )}
+        {!isPending && installations.length === 0 && (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No installations found</EmptyTitle>
+              <EmptyDescription>Run a scan to discover certificate installations</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+        {!isPending && installations.length > 0 && (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Certificate</TableHead>
+                  <TableHead>Gateway</TableHead>
+                  <TableHead>Last Seen</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {installations.map((installation) => (
+                  <TableRow key={installation.id} linked>
+                    <TableCell className="max-w-48">
+                      <RowLink
+                        {...getInstancePinningLink(
+                          currentProject.orgId,
+                          currentProject,
+                          `discovery/installations/${installation.id}`
+                        )!}
+                        title={installation.name || getEndpoint(installation)}
+                      >
+                        {installation.name || getEndpoint(installation)}
+                      </RowLink>
+                    </TableCell>
+                    <TableCell className="max-w-44">
+                      {installation.primaryCertName ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Link
+                              {...getInstancePinningLink(
+                                currentProject.orgId,
+                                currentProject,
+                                `discovery/installations/${installation.id}`
+                              )!}
+                              className="block truncate"
+                            >
+                              {installation.primaryCertName}
+                            </Link>
+                          </TooltipTrigger>
+                          <TooltipContent>{installation.primaryCertName}</TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        "N/A"
+                      )}
+                    </TableCell>
+                    <TableCell>{getGatewayLabel(installation) || "N/A"}</TableCell>
+                    <TableCell>
+                      {format(new Date(installation.lastSeenAt), "MMM dd, yyyy HH:mm")}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {Boolean(totalCount) && (
+              <Pagination
+                count={totalCount}
+                page={page}
+                perPage={perPage}
+                onChangePage={setPage}
+                onChangePerPage={setPerPage}
+              />
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+};

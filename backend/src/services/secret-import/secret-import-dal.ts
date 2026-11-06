@@ -1,0 +1,631 @@
+import { Knex } from "knex";
+
+import { TDbClient } from "@app/db";
+import { TableName, TSecretImports } from "@app/db/schemas";
+import { DatabaseError } from "@app/lib/errors";
+import { sanitizeSqlLikeString } from "@app/lib/fn";
+import { ormify } from "@app/lib/knex";
+
+import { EnvironmentInfo, FolderInfo, FolderResult, SecretResult } from "./secret-import-types";
+
+export type TSecretImportDALFactory = ReturnType<typeof secretImportDALFactory>;
+
+export const secretImportDALFactory = (db: TDbClient) => {
+  const secretImportOrm = ormify(db, TableName.SecretImport);
+
+  // we are using postion based sorting as its a small list
+  // this will return the last value of the position in a folder with secret imports
+  const findLastImportPosition = async (folderId: string, tx?: Knex) => {
+    const lastPos = await (tx || db.replicaNode())(TableName.SecretImport)
+      .where({ folderId })
+      .max("position", { as: "position" })
+      .first();
+    return lastPos?.position || 0;
+  };
+
+  const updateAllPosition = async (
+    folderId: string,
+    pos: number,
+    targetPos: number,
+    positionInc = 1,
+    tx?: Knex,
+    excludeIds?: string[]
+  ) => {
+    try {
+      if (targetPos === -1) {
+        // this means delete
+        const query = (tx || db)(TableName.SecretImport).where({ folderId }).andWhere("position", ">", pos);
+        if (excludeIds?.length) {
+          void query.whereNotIn("id", excludeIds);
+        }
+        await query.decrement("position", positionInc);
+        return;
+      }
+
+      if (targetPos > pos) {
+        const query = (tx || db)(TableName.SecretImport)
+          .where({ folderId })
+          .where("position", "<=", targetPos)
+          .andWhere("position", ">", pos);
+        if (excludeIds?.length) {
+          void query.whereNotIn("id", excludeIds);
+        }
+        await query.decrement("position", positionInc);
+      } else {
+        const query = (tx || db)(TableName.SecretImport)
+          .where({ folderId })
+          .where("position", ">=", targetPos)
+          .andWhere("position", "<", pos);
+        if (excludeIds?.length) {
+          void query.whereNotIn("id", excludeIds);
+        }
+        await query.increment("position", positionInc);
+      }
+    } catch (error) {
+      throw new DatabaseError({ error, name: "Update position" });
+    }
+  };
+
+  const find = async (
+    {
+      search,
+      limit,
+      offset,
+      ...filter
+    }: Partial<
+      TSecretImports & {
+        projectId: string;
+        search?: string;
+        limit?: number;
+        offset?: number;
+      }
+    >,
+    tx?: Knex
+  ) => {
+    try {
+      const query = (tx || db.replicaNode())(TableName.SecretImport)
+        .where(filter)
+        .where((bd) => {
+          if (search) {
+            void bd.whereILike("importPath", `%${sanitizeSqlLikeString(search)}%`);
+          }
+        })
+        .join(TableName.Environment, `${TableName.SecretImport}.importEnv`, `${TableName.Environment}.id`)
+        .leftJoin(TableName.Project, `${TableName.Environment}.projectId`, `${TableName.Project}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .whereNull(`${TableName.Project}.deleteAfter`)
+        .select(
+          db.ref("*").withSchema(TableName.SecretImport) as unknown as keyof TSecretImports,
+          db.ref("slug").withSchema(TableName.Environment),
+          db.ref("name").withSchema(TableName.Environment),
+          db.ref("id").withSchema(TableName.Environment).as("envId"),
+          db.ref("projectId").withSchema(TableName.Environment).as("envProjectId"),
+          db.ref("name").withSchema(TableName.Project).as("sourceProjectName")
+        )
+        .orderBy("position", "asc");
+
+      if (limit) {
+        void query.limit(limit).offset(offset ?? 0);
+      }
+
+      const docs = await query;
+
+      return docs.map(({ envId, envProjectId, slug, name, sourceProjectName, ...el }) => ({
+        ...el,
+        importEnv: { id: envId, slug, name, projectId: envProjectId },
+        sourceProjectName: sourceProjectName ?? undefined
+      }));
+    } catch (error) {
+      throw new DatabaseError({ error, name: "Find secret imports" });
+    }
+  };
+
+  // Holds the import, its folder and the folder's environment against deletion until tx ends, and
+  // returns undefined if any of them is already gone. Deleting an environment or a folder locks its row
+  // and then cascades down to the imports, so the locks here go environment, folder, import: taking the
+  // import first would let a concurrent delete of its folder deadlock with tx. The environment and folder
+  // take KEY SHARE, which conflicts only with deletes and key updates. The import takes NO KEY UPDATE so
+  // that two transactions holding the same import also wait for each other: the replication lock in redis
+  // can expire mid-job, and secret_folders has no unique (parentId, name), so nothing else stops two
+  // workers from both creating the import's reserved folder.
+  const lockWithFolderAgainstDelete = async (
+    { importId, folderId, envId }: { importId: string; folderId: string; envId: string },
+    tx: Knex
+  ) => {
+    try {
+      const env = await tx(TableName.Environment).where({ id: envId }).forKeyShare().first("id");
+      if (!env) return undefined;
+      const folder = await tx(TableName.SecretFolder).where({ id: folderId }).forKeyShare().first("id");
+      if (!folder) return undefined;
+      const doc = await tx(TableName.SecretImport).where({ id: importId, folderId }).forNoKeyUpdate().first();
+      return doc as TSecretImports | undefined;
+    } catch (error) {
+      throw new DatabaseError({ error, name: "Lock with folder against delete" });
+    }
+  };
+
+  const findById = async (id: string, tx?: Knex) => {
+    try {
+      const doc = await (tx || db.replicaNode())(TableName.SecretImport)
+        .where({ [`${TableName.SecretImport}.id` as "id"]: id })
+        .join(TableName.Environment, `${TableName.SecretImport}.importEnv`, `${TableName.Environment}.id`)
+        .leftJoin(TableName.Project, `${TableName.Environment}.projectId`, `${TableName.Project}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .select(
+          db.ref("*").withSchema(TableName.SecretImport) as unknown as keyof TSecretImports,
+          db.ref("slug").withSchema(TableName.Environment),
+          db.ref("name").withSchema(TableName.Environment),
+          db.ref("id").withSchema(TableName.Environment).as("envId"),
+          db.ref("projectId").withSchema(TableName.Environment).as("envProjectId"),
+          db.ref("name").withSchema(TableName.Project).as("sourceProjectName")
+        )
+        .first();
+
+      if (!doc) {
+        return null;
+      }
+
+      const { envId, envProjectId, slug, name, sourceProjectName, ...el } = doc;
+
+      return {
+        ...el,
+        importEnv: { id: envId, slug, name, projectId: envProjectId },
+        sourceProjectName: sourceProjectName ?? undefined
+      };
+    } catch (error) {
+      throw new DatabaseError({ error, name: "Find secret imports" });
+    }
+  };
+
+  const findByIds = async (ids: string[], tx?: Knex) => {
+    try {
+      const docs = await (tx || db.replicaNode())(TableName.SecretImport)
+        .whereIn(`${TableName.SecretImport}.id`, ids)
+        .join(TableName.Environment, `${TableName.SecretImport}.importEnv`, `${TableName.Environment}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .select(
+          db.ref("*").withSchema(TableName.SecretImport) as unknown as keyof TSecretImports,
+          db.ref("slug").withSchema(TableName.Environment),
+          db.ref("name").withSchema(TableName.Environment),
+          db.ref("id").withSchema(TableName.Environment).as("envId"),
+          db.ref("projectId").withSchema(TableName.Environment).as("envProjectId")
+        );
+
+      return docs.map(({ envId, envProjectId, slug, name, ...el }) => ({
+        ...el,
+        importEnv: { id: envId, slug, name, projectId: envProjectId }
+      }));
+    } catch (error) {
+      throw new DatabaseError({ error, name: "Find secret imports by ids" });
+    }
+  };
+
+  const getProjectImportCount = async (
+    { search, projectId, ...filter }: Partial<TSecretImports & { projectId: string; search?: string }>,
+    tx?: Knex
+  ) => {
+    try {
+      const query = (tx || db.replicaNode())(TableName.SecretImport)
+        .where(filter)
+        .where("isReplication", false)
+        .where((bd) => {
+          if (search) {
+            void bd.whereILike("importPath", `%${sanitizeSqlLikeString(search)}%`);
+          }
+        })
+        .join(TableName.Environment, `${TableName.SecretImport}.importEnv`, `${TableName.Environment}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`);
+
+      if (projectId) {
+        void query.where(`${TableName.Environment}.projectId`, projectId);
+      }
+
+      const docs = await query.count();
+      return Number(docs[0]?.count ?? 0);
+    } catch (error) {
+      throw new DatabaseError({ error, name: "get secret imports count" });
+    }
+  };
+
+  const getUniqueImportCountByFolderIds = async (folderIds: string[], search?: string, tx?: Knex) => {
+    try {
+      const docs = await (tx || db.replicaNode())(TableName.SecretImport)
+        .whereIn(`${TableName.SecretImport}.folderId`, folderIds)
+        .where(`${TableName.SecretImport}.isReserved`, false)
+        .where((bd) => {
+          if (search) {
+            void bd.whereILike(`${TableName.SecretImport}.importPath`, `%${sanitizeSqlLikeString(search)}%`);
+          }
+        })
+        .join(TableName.Environment, `${TableName.SecretImport}.importEnv`, `${TableName.Environment}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .count(db.raw(`DISTINCT ("${TableName.SecretImport}"."importPath", "${TableName.SecretImport}"."importEnv")`));
+
+      // @ts-expect-error scott - not typed
+      return Number(docs[0]?.count ?? 0);
+    } catch (error) {
+      throw new DatabaseError({ error, name: "get unique secret imports count" });
+    }
+  };
+
+  // Bypasses the soft-deleted source filter of find. Positions are unique per folder across every
+  // stored row, so renumbering must see imports whose source environment or project is soft-deleted.
+  const findIncludingExpired = (folderId: string, tx?: Knex) => secretImportOrm.find({ folderId }, { tx });
+
+  const findByFolderIds = async (folderIds: string[], tx?: Knex) => {
+    try {
+      const docs = await (tx || db.replicaNode())(TableName.SecretImport)
+        .whereIn("folderId", folderIds)
+        .where("isReplication", false)
+        .join(TableName.Environment, `${TableName.SecretImport}.importEnv`, `${TableName.Environment}.id`)
+        .join(TableName.Project, `${TableName.Environment}.projectId`, `${TableName.Project}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .whereNull(`${TableName.Project}.deleteAfter`)
+        .select(
+          db.ref("*").withSchema(TableName.SecretImport) as unknown as keyof TSecretImports,
+          db.ref("slug").withSchema(TableName.Environment),
+          db.ref("name").withSchema(TableName.Environment),
+          db.ref("id").withSchema(TableName.Environment).as("envId"),
+          db.ref("projectId").withSchema(TableName.Environment).as("envProjectId")
+        )
+        .orderBy("position", "asc");
+      return docs.map(({ envId, envProjectId, slug, name, ...el }) => ({
+        ...el,
+        importEnv: { id: envId, slug, name, projectId: envProjectId }
+      }));
+    } catch (error) {
+      throw new DatabaseError({ error, name: "Find secret imports" });
+    }
+  };
+
+  // checks whether any of the given folders contains a real (non-replication, non-reserved) secret import.
+  // returns the folderId of the first match so callers can resolve its path, or undefined if none exist.
+  const findImportByFolderIds = async (folderIds: string[], tx?: Knex) => {
+    try {
+      if (!folderIds.length) return undefined;
+      const doc = await (tx || db.replicaNode())(TableName.SecretImport)
+        .whereIn("folderId", folderIds)
+        .where((bd) => void bd.where("isReplication", false).orWhereNull("isReplication"))
+        .where((bd) => void bd.where("isReserved", false).orWhereNull("isReserved"))
+        .select(db.ref("folderId").withSchema(TableName.SecretImport))
+        .first();
+      return doc as { folderId: string } | undefined;
+    } catch (error) {
+      throw new DatabaseError({ error, name: "Find import by folder ids" });
+    }
+  };
+
+  const getFolderImports = async (secretPath: string, environmentId: string, tx?: Knex) => {
+    try {
+      const folderImports = await (tx || db.replicaNode())(TableName.SecretImport)
+        .where({ importPath: secretPath, importEnv: environmentId })
+        .join(TableName.SecretFolder, `${TableName.SecretImport}.folderId`, `${TableName.SecretFolder}.id`)
+        .join(TableName.Environment, `${TableName.SecretFolder}.envId`, `${TableName.Environment}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .select(db.ref("id").withSchema(TableName.SecretFolder).as("folderId"));
+      return folderImports;
+    } catch (error) {
+      throw new DatabaseError({ error, name: "get secret imports" });
+    }
+  };
+
+  const getFolderIsImportedBy = async (
+    secretPath: string,
+    environmentId: string,
+    environment: string,
+    projectId: string,
+    projectSlug: string,
+    tx?: Knex
+  ) => {
+    try {
+      const folderImports = await (tx || db.replicaNode())(TableName.SecretImport)
+        .where({ importPath: secretPath, importEnv: environmentId })
+        .join(TableName.SecretFolder, `${TableName.SecretImport}.folderId`, `${TableName.SecretFolder}.id`)
+        .join(TableName.Environment, `${TableName.SecretFolder}.envId`, `${TableName.Environment}.id`)
+        .join(TableName.Project, `${TableName.Environment}.projectId`, `${TableName.Project}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .select(
+          db.ref("name").withSchema(TableName.Environment).as("envName"),
+          db.ref("slug").withSchema(TableName.Environment).as("envSlug"),
+          db.ref("name").withSchema(TableName.SecretFolder).as("folderName"),
+          db.ref("id").withSchema(TableName.SecretFolder).as("folderId"),
+          db.ref("name").withSchema(TableName.Project).as("projectName"),
+          db.ref("slug").withSchema(TableName.Project).as("sourceProjectSlug"),
+          db.ref("id").withSchema(TableName.Project).as("sourceProjectId")
+        );
+
+      const secretReferences = await (tx || db.replicaNode())(TableName.SecretReferenceV2)
+        .where({ secretPath, environment })
+        .whereNull(`${TableName.SecretReferenceV2}.targetProjectSlug`)
+        .join(TableName.SecretV2, `${TableName.SecretReferenceV2}.secretId`, `${TableName.SecretV2}.id`)
+        .join(TableName.SecretFolder, `${TableName.SecretV2}.folderId`, `${TableName.SecretFolder}.id`)
+        .join(TableName.Environment, `${TableName.SecretFolder}.envId`, `${TableName.Environment}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .where(`${TableName.Environment}.projectId`, projectId)
+        .where(`${TableName.SecretFolder}.isReserved`, false)
+        .select(
+          db.ref("key").withSchema(TableName.SecretV2).as("secretId"),
+          db.ref("name").withSchema(TableName.SecretFolder).as("folderName"),
+          db.ref("name").withSchema(TableName.Environment).as("envName"),
+          db.ref("slug").withSchema(TableName.Environment).as("envSlug"),
+          db.ref("id").withSchema(TableName.SecretFolder).as("folderId"),
+          db.ref("secretKey").withSchema(TableName.SecretReferenceV2).as("referencedSecretKey"),
+          db.ref("environment").withSchema(TableName.SecretReferenceV2).as("referencedSecretEnv")
+        );
+
+      const crossProjectSecretReferences = await (tx || db.replicaNode())(TableName.SecretReferenceV2)
+        .where({ secretPath, environment })
+        .where(`${TableName.SecretReferenceV2}.targetProjectSlug`, projectSlug)
+        .join(TableName.SecretV2, `${TableName.SecretReferenceV2}.secretId`, `${TableName.SecretV2}.id`)
+        .join(TableName.SecretFolder, `${TableName.SecretV2}.folderId`, `${TableName.SecretFolder}.id`)
+        .join(TableName.Environment, `${TableName.SecretFolder}.envId`, `${TableName.Environment}.id`)
+        .join(TableName.Project, `${TableName.Environment}.projectId`, `${TableName.Project}.id`)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .where(`${TableName.SecretFolder}.isReserved`, false)
+        .select(
+          db.ref("key").withSchema(TableName.SecretV2).as("secretId"),
+          db.ref("name").withSchema(TableName.SecretFolder).as("folderName"),
+          db.ref("name").withSchema(TableName.Environment).as("envName"),
+          db.ref("slug").withSchema(TableName.Environment).as("envSlug"),
+          db.ref("id").withSchema(TableName.SecretFolder).as("folderId"),
+          db.ref("secretKey").withSchema(TableName.SecretReferenceV2).as("referencedSecretKey"),
+          db.ref("environment").withSchema(TableName.SecretReferenceV2).as("referencedSecretEnv"),
+          db.ref("name").withSchema(TableName.Project).as("projectName"),
+          db.ref("slug").withSchema(TableName.Project).as("sourceProjectSlug"),
+          db.ref("id").withSchema(TableName.Project).as("sourceProjectId")
+        );
+
+      const crossProjectImports = folderImports.filter((el) => el.sourceProjectId !== projectId);
+
+      const folderResults = folderImports
+        .filter((el) => el.sourceProjectId === projectId)
+        .map(({ envName, envSlug, folderName, folderId }) => ({
+          envName,
+          envSlug,
+          folderName,
+          folderId
+        }));
+
+      const secretResults = secretReferences.map(
+        ({ envName, envSlug, secretId, folderName, folderId, referencedSecretKey, referencedSecretEnv }) => ({
+          envName,
+          envSlug,
+          secretId,
+          folderName,
+          folderId,
+          referencedSecretKey,
+          referencedSecretEnv
+        })
+      );
+
+      type ResultItem = FolderResult | SecretResult;
+      const allResults: ResultItem[] = [...folderResults, ...secretResults];
+
+      type EnvFolderMap = {
+        [envName: string]: {
+          envSlug: string;
+          folders: {
+            [folderName: string]: {
+              secrets: {
+                secretId: string;
+                referencedSecretKey: string;
+                referencedSecretEnv: string;
+              }[];
+              folderId: string;
+              folderImported: boolean;
+            };
+          };
+        };
+      };
+
+      const groupedByEnv = allResults.reduce<EnvFolderMap>((acc, item) => {
+        const env = item.envName;
+        const folder = item.folderName;
+        const { envSlug } = item;
+
+        const updatedAcc = { ...acc };
+
+        if (!updatedAcc[env]) {
+          updatedAcc[env] = {
+            envSlug,
+            folders: {}
+          };
+        }
+
+        if (!updatedAcc[env].folders[folder]) {
+          updatedAcc[env].folders[folder] = { secrets: [], folderId: item.folderId, folderImported: false };
+        }
+
+        if ("secretId" in item && item.secretId) {
+          updatedAcc[env].folders[folder].secrets = [
+            ...updatedAcc[env].folders[folder].secrets,
+            {
+              secretId: item.secretId,
+              referencedSecretKey: item.referencedSecretKey,
+              referencedSecretEnv: item.referencedSecretEnv
+            }
+          ];
+        } else {
+          updatedAcc[env].folders[folder].folderImported = true;
+        }
+
+        return updatedAcc;
+      }, {});
+
+      const formattedResult: EnvironmentInfo[] = Object.keys(groupedByEnv).map((envName) => {
+        const envData = groupedByEnv[envName];
+
+        const folders: FolderInfo[] = Object.keys(envData.folders).map((folderName) => {
+          const folderData = envData.folders[folderName];
+          const hasSecrets = folderData.secrets.length > 0;
+
+          return {
+            folderName,
+            folderId: folderData.folderId,
+            folderImported: folderData.folderImported,
+            ...(hasSecrets && { secrets: folderData.secrets })
+          };
+        });
+
+        return {
+          envName,
+          envSlug: envData.envSlug,
+          folders
+        };
+      });
+
+      // Group cross-project imports and references by (sourceProjectId, envName)
+      type CrossProjEnvFolderMap = {
+        [key: string]: {
+          envName: string;
+          envSlug: string;
+          projectName: string;
+          projectSlug: string;
+          projectId: string;
+          folders: {
+            [folderId: string]: {
+              secrets: { secretId: string; referencedSecretKey: string; referencedSecretEnv: string }[];
+              folderId: string;
+              folderName: string;
+              folderImported: boolean;
+            };
+          };
+        };
+      };
+
+      const crossProjItems: (ResultItem & {
+        projectName: string;
+        sourceProjectSlug: string;
+        sourceProjectId: string;
+      })[] = [...crossProjectImports, ...crossProjectSecretReferences];
+
+      const groupedCrossProj = crossProjItems.reduce<CrossProjEnvFolderMap>((acc, item) => {
+        const key = `${item.sourceProjectId}::${item.envName}`;
+        const updatedAcc = { ...acc };
+
+        if (!updatedAcc[key]) {
+          updatedAcc[key] = {
+            envName: item.envName,
+            envSlug: item.envSlug,
+            projectName: item.projectName,
+            projectSlug: item.sourceProjectSlug,
+            projectId: item.sourceProjectId,
+            folders: {}
+          };
+        }
+
+        if (!updatedAcc[key].folders[item.folderId]) {
+          updatedAcc[key].folders[item.folderId] = {
+            secrets: [],
+            folderId: item.folderId,
+            folderName: item.folderName,
+            folderImported: false
+          };
+        }
+
+        if ("secretId" in item) {
+          updatedAcc[key].folders[item.folderId].secrets.push({
+            secretId: item.secretId,
+            referencedSecretKey: item.referencedSecretKey,
+            referencedSecretEnv: item.referencedSecretEnv
+          });
+        } else {
+          updatedAcc[key].folders[item.folderId].folderImported = true;
+        }
+
+        return updatedAcc;
+      }, {});
+
+      const crossProjResult: EnvironmentInfo[] = Object.values(groupedCrossProj).map((group) => ({
+        envName: group.envName,
+        envSlug: group.envSlug,
+        projectName: group.projectName,
+        projectSlug: group.projectSlug,
+        projectId: group.projectId,
+        folders: Object.values(group.folders).map((folderData) => ({
+          folderName: folderData.folderName,
+          folderId: folderData.folderId,
+          folderImported: folderData.folderImported,
+          ...(folderData.secrets.length > 0 && { secrets: folderData.secrets })
+        }))
+      }));
+
+      return [...formattedResult, ...crossProjResult];
+    } catch (error) {
+      throw new DatabaseError({ error, name: "GetSecretImportsAndReferences" });
+    }
+  };
+
+  const bulkUpdatePosition = async (updates: { id: string; position: number }[], tx?: Knex) => {
+    if (!updates.length) return;
+    try {
+      const ids = updates.map(({ id }) => id);
+      const bindings: (string | number)[] = [];
+      const cases = updates
+        .map(({ id, position }) => {
+          bindings.push(id, position);
+          return `WHEN id = ? THEN ?::integer`;
+        })
+        .join(" ");
+      await (tx || db)(TableName.SecretImport)
+        .whereIn("id", ids)
+        .update({ position: db.raw(`CASE ${cases} END`, bindings) as unknown as number });
+    } catch (error) {
+      throw new DatabaseError({ error, name: "Bulk update position" });
+    }
+  };
+
+  const findCrossProjectImportsBySourceFolder = async (
+    sourceEnvId: string,
+    sourceSecretPath: string,
+    sourceProjectId: string,
+    tx?: Knex
+  ) => {
+    try {
+      const docs = await (tx || db.replicaNode())(TableName.SecretImport)
+        .where({
+          [`${TableName.SecretImport}.importEnv` as "importEnv"]: sourceEnvId,
+          [`${TableName.SecretImport}.importPath` as "importPath"]: sourceSecretPath
+        })
+        .where((qb) => {
+          void qb
+            .where(`${TableName.SecretImport}.isReplication`, false)
+            .orWhereNull(`${TableName.SecretImport}.isReplication`);
+        })
+        .join(TableName.SecretFolder, `${TableName.SecretImport}.folderId`, `${TableName.SecretFolder}.id`)
+        .join(TableName.Environment, `${TableName.SecretFolder}.envId`, `${TableName.Environment}.id`)
+        .join(TableName.Project, `${TableName.Environment}.projectId`, `${TableName.Project}.id`)
+        .whereNot(`${TableName.Environment}.projectId`, sourceProjectId)
+        .whereNull(`${TableName.Environment}.deleteAfter`)
+        .whereNull(`${TableName.Project}.deleteAfter`)
+        .select(
+          db.ref("folderId").withSchema(TableName.SecretImport),
+          db.ref("projectId").withSchema(TableName.Environment).as("targetProjectId"),
+          db.ref("orgId").withSchema(TableName.Project).as("targetOrgId")
+        );
+
+      return docs;
+    } catch (error) {
+      throw new DatabaseError({ error, name: "FindCrossProjectImportsBySourceFolder" });
+    }
+  };
+
+  return {
+    ...secretImportOrm,
+    find,
+    findById,
+    lockWithFolderAgainstDelete,
+    findByIds,
+    findIncludingExpired,
+    findByFolderIds,
+    findImportByFolderIds,
+    findLastImportPosition,
+    updateAllPosition,
+    bulkUpdatePosition,
+    getProjectImportCount,
+    getUniqueImportCountByFolderIds,
+    getFolderIsImportedBy,
+    getFolderImports,
+    findCrossProjectImportsBySourceFolder
+  };
+};

@@ -1,0 +1,193 @@
+---
+title: "ServiceNow connection"
+sidebarTitle: "ServiceNow"
+description: "Learn how to configure a ServiceNow connection for Infisical."
+---
+
+<Info>
+  The ServiceNow integration is opt-in and only available on Enterprise plans.
+  Contact [sales@infisical.com](mailto:sales@infisical.com) to get access to the
+  ServiceNow integration.
+</Info>
+
+A ServiceNow connection authenticates Infisical to your ServiceNow instance with the username and password of a ServiceNow integration user. Infisical uses the connection to create access requests in the Infisical application on your instance, and to read back the decision your approvers make on each one.
+
+<Note>
+  This guide only authenticates Infisical with ServiceNow. Once the app
+  connection is ready, you can [use it to set up
+  integrations](#step-3-configure-integrations).
+</Note>
+
+## Prerequisites
+
+- The Infisical application installed on your ServiceNow instance (see [Step 1 of the ServiceNow integration](/documentation/platform/workflow-integrations/servicenow-integration#step-1-install-the-infisical-application))
+- Permission to create users and assign roles on the instance
+- A ServiceNow instance that Infisical can reach (if your instance restricts inbound traffic, allow [Infisical's IP addresses](/documentation/setup/networking) on its IP access control list)
+
+## Step 1: Create a ServiceNow integration user
+
+Infisical signs in to ServiceNow as a dedicated integration user. Use a new user rather than a personal account, so you can change its password without affecting anyone's access.
+
+<Steps>
+  <Step>
+    In ServiceNow, go to **All** > **User Administration** > **Users**.
+
+    ![Users in the ServiceNow Navigator](/images/app-connections/servicenow/servicenow-users-menu.png)
+
+  </Step>
+  <Step>
+    Select **New**.
+
+    ![New User](/images/app-connections/servicenow/servicenow-users-new.png)
+
+  </Step>
+  <Step>
+    Fill out the user's fields:
+
+    - **User ID**: an identifier such as `infisical-machine`
+    - **First name** and **Last name**: a recognizable name, such as `infisical` and `machine`
+    - **Active**: checked
+    - **Identity type**: **Machine**
+
+    Then, select **Submit**.
+
+    ![New User Form](/images/app-connections/servicenow/servicenow-new-user-form.png)
+
+  </Step>
+  <Step>
+    Open the new user from the **Users** list, then select **Edit...** on the **Roles** tab.
+
+    ![User Roles Tab](/images/app-connections/servicenow/servicenow-user-roles-tab.png)
+
+  </Step>
+  <Step>
+    In **Collection**, search for `x_infis_approvals`, move `x_infis_approvals.secret-manager-integration` to **Roles List**, and select **Save**.
+
+    This role lets Infisical create access requests in the Infisical application and read their decisions. It doesn't grant approval rights or access to anything else on the instance.
+
+    ![Add the Integration Role](/images/app-connections/servicenow/servicenow-user-add-role.png)
+
+  </Step>
+  <Step>
+    Select **Set Password**.
+
+    ![Set Password](/images/app-connections/servicenow/servicenow-user-set-password.png)
+
+  </Step>
+  <Step>
+    Select **Generate**, copy the password, and select **Save Password**. You'll enter the password in Infisical in [Step 2](#step-2-create-the-app-connection).
+
+    ![Generate a Password](/images/app-connections/servicenow/servicenow-user-generate-password.png)
+
+  </Step>
+  <Step>
+    Copy the base URL of your instance, such as `https://dev12345.service-now.com`. The URL must use HTTPS and can't include a path or a query string.
+  </Step>
+</Steps>
+
+## Step 2: Create the app connection
+
+Next, create the app connection in Infisical.
+
+<Tip>
+  To create the connection using the API, use the [Create ServiceNow
+  Connection](/api-reference/endpoints/app-connections/servicenow/create)
+  endpoint.
+</Tip>
+
+<View title="Organization-level">
+    <Steps>
+        <Step>
+            In the sidebar, select **Integrations**, then open the **App Connections** tab.
+        </Step>
+        <Step>
+            Select **Add Connection** and choose **ServiceNow**.
+
+            ![Select ServiceNow Connection](/images/app-connections/servicenow/servicenow-app-connection-option.png)
+        </Step>
+        <Step>
+            Fill out the form's fields:
+
+            - **Name**: a name for the connection, such as `servicenow-prod`
+            - **Description** (optional): what the connection is used for
+            - **Method**: **Basic Auth**
+            - **Instance URL**: the base URL you copied in [Step 1](#step-1-create-a-servicenow-integration-user)
+            - **Username**: the **User ID** of the integration user
+            - **Password**: the integration user's password
+
+            Then, select **Connect to ServiceNow**.
+
+            ![ServiceNow Connection Form](/images/app-connections/servicenow/servicenow-app-connection-form.png)
+        </Step>
+    </Steps>
+
+</View>
+
+<View title="Project-level">
+    <Steps>
+        <Step>
+            In your Secrets Management project, select **Integrations** from the sidebar, then open the **App Connections** tab.
+        </Step>
+        <Step>
+            Select **Add Connection** and choose **ServiceNow**.
+
+            ![Select ServiceNow Connection](/images/app-connections/servicenow/servicenow-app-connection-option.png)
+        </Step>
+        <Step>
+            Fill out the form's fields:
+
+            - **Name**: a name for the connection, such as `servicenow-prod`
+            - **Description** (optional): what the connection is used for
+            - **Method**: **Basic Auth**
+            - **Instance URL**: the base URL you copied in [Step 1](#step-1-create-a-servicenow-integration-user)
+            - **Username**: the **User ID** of the integration user
+            - **Password**: the integration user's password
+
+            Then, select **Connect to ServiceNow**.
+
+            ![ServiceNow Connection Form](/images/app-connections/servicenow/servicenow-app-connection-form.png)
+        </Step>
+    </Steps>
+
+</View>
+
+Before Infisical saves the connection, it checks that the username and password sign in to the instance. It doesn't check the integration user's role or whether the Infisical application is installed. If either one is missing, the first access request sent over the connection shows **Not Submitted** (see [Troubleshooting](#troubleshooting)).
+
+<Check>Your ServiceNow app connection is ready to use.</Check>
+
+![ServiceNow Connection Created](/images/app-connections/servicenow/servicenow-app-connection-created.png)
+
+## Step 3: Configure integrations
+
+Now that your ServiceNow app connection is configured, you can use it to set up the following integration:
+
+<Card
+  title="ServiceNow integration"
+  icon="workflow"
+  href="/documentation/platform/workflow-integrations/servicenow-integration"
+>
+  Route Infisical access requests through ServiceNow approval flows.
+</Card>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Infisical asks you to verify the username and password of the integration user">
+    The username or password is wrong, or the user is locked out or inactive.
+  </Accordion>
+  <Accordion title="Infisical says the instance URL redirected">
+    The URL isn't the base URL of your instance, or the instance is hibernating. Wake the instance, then enter its base URL.
+  </Accordion>
+  <Accordion title="Infisical can't reach the instance">
+    The instance URL is wrong, or the instance blocks traffic from Infisical. Allow [Infisical's IP addresses](/documentation/setup/networking) on the instance's IP access control list.
+  </Accordion>
+  <Accordion title="An access request shows **Not Submitted**, and its reason says the instance has no Infisical Approvals application endpoint">
+    The Infisical application isn't installed or active on the instance. Install it, then select **Retry** on the request.
+  </Accordion>
+  <Accordion title="An access request shows **Not Submitted**, and its reason says the instance rejected the integration user's credentials">
+    The integration user's password changed, or the user doesn't have the `x_infis_approvals.secret-manager-integration` role. Update the connection or the user, then select **Retry** on the request.
+  </Accordion>
+  <Accordion title="Infisical won't delete the connection">
+    An access policy still uses the connection. Select another connection on the policy, or switch the policy back to Infisical approvals, then delete the connection.
+  </Accordion>
+</AccordionGroup>

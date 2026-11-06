@@ -1,314 +1,449 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, UseQueryOptions } from "@tanstack/react-query";
 
 import { apiRequest } from "@app/config/request";
+import { OrderByDirection } from "@app/hooks/api/generic/types";
 
-import { 
-  BillingDetails,
-  Invoice,
-  Organization, 
-  OrgPlanTable,
-  PlanBillingInfo,
-  PmtMethod,
-  ProductsTable,
-  RenameOrgDTO,
-  TaxID
+import { TGroupOrgMembership } from "../groups/types";
+import { getAuthToken } from "../reactQuery";
+import { TOrgRole } from "../roles/types";
+import { IntegrationAuth } from "../types";
+import {
+  Organization,
+  OrgIdentityOrderBy,
+  TListOrgIdentitiesDTO,
+  TOrgIdentitiesList,
+  TOrgProductStats,
+  UpdateOrgDTO
 } from "./types";
 
-const organizationKeys = {
-  getUserOrganization: ["organization"] as const,
-  getOrgPlanBillingInfo: (orgId: string) => [{ orgId }, "organization-plan-billing"] as const,
-  getOrgPlanTable: (orgId: string) => [{ orgId }, "organization-plan-table"] as const,
-  getOrgPlansTable: (orgId: string, billingCycle: "monthly" | "yearly") => [{ orgId, billingCycle }, "organization-plans-table"] as const,
-  getOrgBillingDetails: (orgId: string) => [{ orgId }, "organization-billing-details"] as const,
-  getOrgPmtMethods: (orgId: string) => [{ orgId }, "organization-pmt-methods"] as const,
-  getOrgTaxIds: (orgId: string) => [{ orgId }, "organization-tax-ids"] as const,
-  getOrgInvoices: (orgId: string) => [{ orgId }, "organization-invoices"] as const,
+export type TOrgWithSubOrgs = Organization & {
+  userJoinedAt?: string | null;
+  subOrganizations: { id: string; name: string; slug: string; userJoinedAt?: string | null }[];
 };
 
-export const useGetOrganization = () => {
-  return useQuery({ 
-    queryKey: organizationKeys.getUserOrganization, 
-    queryFn: async () => {
-      const { data } = await apiRequest.get<{ organizations: Organization[] }>("/api/v1/organization");
+export const organizationKeys = {
+  getUserOrganizations: ["organization"] as const,
+  getUserOrganizationsWithSubOrgs: ["organization", "with-sub-orgs"] as const,
+  getOrgIdentityMemberships: (orgId: string) =>
+    [{ orgId }, "organization-identity-memberships"] as const,
+  // allows invalidation using above key without knowing params
+  getOrgIdentityMembershipsWithParams: ({
+    organizationId: orgId,
+    ...params
+  }: TListOrgIdentitiesDTO) =>
+    [...organizationKeys.getOrgIdentityMemberships(orgId), params] as const,
+  getOrgGroups: (orgId: string) => [{ orgId }, "organization-groups"] as const,
+  getOrgGroupsWithParams: (
+    orgId: string,
+    params: {
+      offset?: number;
+      limit?: number;
+      search?: string;
+      roles?: string[];
+      orderBy?: string;
+      orderDirection?: string;
+    }
+  ) => [...organizationKeys.getOrgGroups(orgId), params] as const,
+  getOrgIntegrationAuths: (orgId: string) => [{ orgId }, "integration-auths"] as const,
+  getOrgById: (orgId: string) => ["organization", { orgId }],
+  getAvailableIdentities: () => ["available-identities"],
+  getAvailableUsers: () => ["available-users"],
+  getOrgProductStats: (orgId: string) => [{ orgId }, "organization-product-stats"] as const
+};
 
-      return data.organizations;
+export const fetchOrganizations = async () => {
+  const {
+    data: { organizations }
+  } = await apiRequest.get<{ organizations: Organization[] }>("/api/v1/organization");
+  return organizations;
+};
+
+export const useGetOrganizations = () => {
+  return useQuery({
+    queryKey: organizationKeys.getUserOrganizations,
+    queryFn: async () => {
+      return fetchOrganizations();
     }
   });
-}
+};
 
-export const useRenameOrg = () => {
+export const fetchOrganizationsWithSubOrgs = async () => {
+  // prioritize auth token
+  const authToken = getAuthToken();
+
+  const {
+    data: { organizations }
+  } = await apiRequest.get<{ organizations: TOrgWithSubOrgs[] }>(
+    "/api/v1/organization/accessible-with-sub-orgs",
+    {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined
+    }
+  );
+  return organizations;
+};
+
+export const useGetOrganizationsWithSubOrgs = () => {
+  return useQuery({
+    queryKey: organizationKeys.getUserOrganizationsWithSubOrgs,
+    queryFn: fetchOrganizationsWithSubOrgs
+  });
+};
+
+export const fetchOrganizationById = async (id: string) => {
+  const {
+    data: { organization }
+  } = await apiRequest.get<{
+    organization: Organization;
+  }>(`/api/v1/organization/${id}`);
+  return organization;
+};
+
+export const useGetOrganizationById = (id: string, options?: { enabled?: boolean }) => {
+  return useQuery({
+    queryKey: organizationKeys.getOrgById(id),
+    queryFn: async () => {
+      return fetchOrganizationById(id);
+    },
+    enabled: options?.enabled ?? true
+  });
+};
+
+export const useCreateOrg = (options: { invalidate: boolean } = { invalidate: true }) => {
   const queryClient = useQueryClient();
 
-  return useMutation<{}, {}, RenameOrgDTO>({
-    mutationFn: ({ newOrgName, orgId }) =>
-      apiRequest.patch(`/api/v1/organization/${orgId}/name`, { name: newOrgName }),
-    onSuccess: () => {
-      queryClient.invalidateQueries(organizationKeys.getUserOrganization);
-    }
-  });
-};
-
-export const useGetOrgTrialUrl = () => {
   return useMutation({
-    mutationFn: async ({ 
-      orgId, 
-      success_url 
-    }: {
-      orgId: string;
-      success_url: string;
-    }) => {
-      const { data: { url } } = await apiRequest.post(`/api/v1/organizations/${orgId}/session/trial`, {
-        success_url
-      })
-      
-      return url;
+    mutationFn: async ({ name }: { name: string }) => {
+      const {
+        data: { organization }
+      } = await apiRequest.post("/api/v2/organizations", {
+        name
+      });
+
+      return organization;
+    },
+    onSuccess: () => {
+      if (options?.invalidate) {
+        queryClient.invalidateQueries({ queryKey: organizationKeys.getUserOrganizations });
+      }
     }
   });
 };
 
-export const useGetOrgPlanBillingInfo = (organizationId: string) => {
+export const useUpdateOrg = () => {
+  const queryClient = useQueryClient();
+  return useMutation<object, object, UpdateOrgDTO>({
+    mutationFn: ({
+      name,
+      authEnforced,
+      googleSsoAuthEnforced,
+      scimEnabled,
+      slug,
+      orgId,
+      defaultMembershipRoleSlug,
+      enforceMfa,
+      selectedMfaMethod,
+      ssoMfaTrust,
+      allowSecretSharingOutsideOrganization,
+      bypassOrgAuthEnabled,
+      userTokenExpiration,
+      secretsProductEnabled,
+      pkiProductEnabled,
+      kmsProductEnabled,
+      scannerProductEnabled,
+      shareSecretsProductEnabled,
+      maxSharedSecretLifetime,
+      maxSharedSecretViewLimit,
+      blockDuplicateSecretSyncDestinations,
+      allowCrossProjectSecretSharing,
+      requireGatewayPools,
+      secretShareBrandConfig
+    }) => {
+      return apiRequest.patch(`/api/v1/organization/${orgId}`, {
+        name,
+        authEnforced,
+        googleSsoAuthEnforced,
+        scimEnabled,
+        slug,
+        defaultMembershipRoleSlug,
+        enforceMfa,
+        selectedMfaMethod,
+        ssoMfaTrust,
+        allowSecretSharingOutsideOrganization,
+        bypassOrgAuthEnabled,
+        userTokenExpiration,
+        secretsProductEnabled,
+        pkiProductEnabled,
+        kmsProductEnabled,
+        scannerProductEnabled,
+        shareSecretsProductEnabled,
+        maxSharedSecretLifetime,
+        maxSharedSecretViewLimit,
+        blockDuplicateSecretSyncDestinations,
+        allowCrossProjectSecretSharing,
+        requireGatewayPools,
+        secretShareBrandConfig
+      });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: organizationKeys.getUserOrganizations });
+
+      if (variables.allowCrossProjectSecretSharing !== undefined) {
+        const secretLabels = new Set([
+          "secrets",
+          "secrets-import-sec",
+          "imported-folders-all-envs",
+          "secret-reference-tree",
+          "secret-references"
+        ]);
+        queryClient.invalidateQueries({
+          predicate: (query) =>
+            Array.isArray(query.queryKey) &&
+            query.queryKey.length >= 2 &&
+            (secretLabels.has(query.queryKey[0] as string) ||
+              secretLabels.has(query.queryKey[1] as string) ||
+              query.queryKey[0] === "dashboard")
+        });
+      }
+    }
+  });
+};
+
+export const useUpgradePrivilegeSystem = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => {
+      return apiRequest.post("/api/v2/organizations/privilege-system-upgrade");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: organizationKeys.getUserOrganizations });
+    }
+  });
+};
+
+export const useGetIdentityMembershipOrgs = (
+  {
+    organizationId,
+    offset = 0,
+    limit = 100,
+    orderBy = OrgIdentityOrderBy.Name,
+    orderDirection = OrderByDirection.ASC,
+    search = ""
+  }: TListOrgIdentitiesDTO,
+  options?: Omit<
+    UseQueryOptions<
+      TOrgIdentitiesList,
+      unknown,
+      TOrgIdentitiesList,
+      ReturnType<typeof organizationKeys.getOrgIdentityMembershipsWithParams>
+    >,
+    "queryKey" | "queryFn"
+  >
+) => {
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+    orderBy: String(orderBy),
+    orderDirection: String(orderDirection),
+    search: String(search)
+  });
   return useQuery({
-    queryKey: organizationKeys.getOrgPlanBillingInfo(organizationId),
+    queryKey: organizationKeys.getOrgIdentityMembershipsWithParams({
+      organizationId,
+      offset,
+      limit,
+      orderBy,
+      orderDirection,
+      search
+    }),
     queryFn: async () => {
-      const { data } = await apiRequest.get<PlanBillingInfo>(
-        `/api/v1/organizations/${organizationId}/plan/billing`
+      const { data } = await apiRequest.get<TOrgIdentitiesList>(
+        `/api/v2/organizations/${organizationId}/identity-memberships`,
+        { params }
       );
 
-      return data; 
+      return data;
     },
-    enabled: true
+    enabled: true,
+    ...options
   });
+};
+
+export const useDeleteOrgById = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ organizationId }: { organizationId: string }) => {
+      const {
+        data: { organization }
+      } = await apiRequest.delete<{ organization: Organization }>(
+        `/api/v2/organizations/${organizationId}`
+      );
+      return organization;
+    },
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: organizationKeys.getUserOrganizations });
+    }
+  });
+};
+
+type OrgGroupMembershipResponse = {
+  groupMemberships: Array<{
+    id: string;
+    groupId: string;
+    group: { id: string; name: string; slug: string; orgId?: string };
+    roles: Array<{
+      id: string;
+      role: string;
+      customRoleId?: string | null;
+      customRoleName?: string | null;
+      customRoleSlug?: string | null;
+      permissions?: unknown;
+      description?: string | null;
+    }>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  totalCount: number;
+};
+
+function mapOrgMembershipToGroup(
+  m: OrgGroupMembershipResponse["groupMemberships"][0]
+): TGroupOrgMembership {
+  const firstRole = m.roles[0];
+  return {
+    id: m.group.id,
+    name: m.group.name,
+    slug: m.group.slug,
+    orgId: m.group.orgId ?? "",
+    createdAt: m.createdAt,
+    updatedAt: m.updatedAt,
+    role: firstRole?.role ?? "member",
+    roleId: firstRole?.id ?? "",
+    ...(firstRole?.role === "custom" &&
+      firstRole.customRoleSlug && {
+        customRole: {
+          id: firstRole.customRoleId ?? "",
+          name: firstRole.customRoleName ?? "",
+          slug: firstRole.customRoleSlug,
+          orgId: "",
+          createdAt: m.createdAt,
+          updatedAt: m.updatedAt,
+          permissions: (firstRole.permissions as TOrgRole["permissions"]) ?? [],
+          description: firstRole.description ?? undefined
+        } as TOrgRole
+      })
+  };
 }
 
-export const useGetOrgPlanTable = (organizationId: string) => {
+export const useGetOrganizationGroups = (organizationId: string) => {
   return useQuery({
-    queryKey: organizationKeys.getOrgPlanTable(organizationId),
+    queryKey: organizationKeys.getOrgGroups(organizationId),
+    enabled: Boolean(organizationId),
     queryFn: async () => {
-      const { data } = await apiRequest.get<OrgPlanTable>(
-        `/api/v1/organizations/${organizationId}/plan/table`
+      const {
+        data: { groupMemberships }
+      } = await apiRequest.get<OrgGroupMembershipResponse>(
+        "/api/v1/organizations/memberships/groups",
+        { params: { limit: 100 } }
       );
 
-      return data; 
-    },
-    enabled: true
+      return groupMemberships.map(mapOrgMembershipToGroup);
+    }
   });
-}
+};
 
-export const useGetOrgPlansTable = ({
+export const useSearchOrganizationGroups = ({
   organizationId,
-  billingCycle
+  offset,
+  limit,
+  search,
+  roles,
+  orderBy,
+  orderDirection
 }: {
   organizationId: string;
-  billingCycle: "monthly" | "yearly"
+  offset?: number;
+  limit?: number;
+  search?: string;
+  roles?: string[];
+  orderBy?: string;
+  orderDirection?: string;
 }) => {
   return useQuery({
-    queryKey: organizationKeys.getOrgPlansTable(organizationId, billingCycle),
+    queryKey: organizationKeys.getOrgGroupsWithParams(organizationId, {
+      offset,
+      limit,
+      search,
+      roles,
+      orderBy,
+      orderDirection
+    }),
+    enabled: Boolean(organizationId),
+    placeholderData: (prev) => prev,
     queryFn: async () => {
-      const { data } = await apiRequest.get<ProductsTable>(
-        `/api/v1/organizations/${organizationId}/plans/table?billingCycle=${billingCycle}`
-      );
-
-      return data; 
-    },
-    enabled: true
-  });
-}
-
-export const useGetOrgBillingDetails = (organizationId: string) => {
-  return useQuery({
-    queryKey: organizationKeys.getOrgBillingDetails(organizationId),
-    queryFn: async () => {
-      const { data } = await apiRequest.get<BillingDetails>(
-        `/api/v1/organizations/${organizationId}/billing-details`
-      );
-
-      return data;
-    },
-    enabled: true
-  });
-}
-
-export const useUpdateOrgBillingDetails = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      organizationId,
-      name,
-      email
-    }: {
-      organizationId: string;
-      name?: string;
-      email?: string;
-    }) => {
-      const { data } = await apiRequest.patch(
-        `/api/v1/organizations/${organizationId}/billing-details`, 
+      const {
+        data: { groupMemberships, totalCount }
+      } = await apiRequest.get<OrgGroupMembershipResponse>(
+        "/api/v1/organizations/memberships/groups",
         {
-          name,
-          email
+          params: {
+            limit,
+            offset,
+            search: search || undefined,
+            roles: roles?.length ? roles : undefined,
+            orderBy,
+            orderDirection
+          }
         }
       );
-
-      return data;
-    },
-    onSuccess(_, dto) {
-      queryClient.invalidateQueries(organizationKeys.getOrgBillingDetails(dto.organizationId));
+      return { groups: groupMemberships.map(mapOrgMembershipToGroup), totalCount };
     }
   });
 };
 
-export const useGetOrgPmtMethods = (organizationId: string) => {
+export const useGetOrgIntegrationAuths = <TData = IntegrationAuth[],>(
+  organizationId: string,
+  select?: (data: IntegrationAuth[]) => TData
+) => {
   return useQuery({
-    queryKey: organizationKeys.getOrgPmtMethods(organizationId),
+    queryKey: organizationKeys.getOrgIntegrationAuths(organizationId),
     queryFn: async () => {
-      const { data } = await apiRequest.get<PmtMethod[]>(
-        `/api/v1/organizations/${organizationId}/billing-details/payment-methods`
+      const { data } = await apiRequest.get<{ authorizations: IntegrationAuth[] }>(
+        `/api/v1/organization/${organizationId}/integration-authorizations`
       );
 
-      return data;
+      return data.authorizations;
     },
-    enabled: true
-  });
-}
-
-export const useAddOrgPmtMethod = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      organizationId,
-      success_url,
-      cancel_url
-    }: {
-      organizationId: string;
-      success_url: string;
-      cancel_url: string;
-    }) => {
-      const { data: { url } } = await apiRequest.post(
-        `/api/v1/organizations/${organizationId}/billing-details/payment-methods`, 
-        {
-          success_url,
-          cancel_url
-        }
-      );
-
-      return url;
-    },
-    onSuccess(_, dto) {
-      queryClient.invalidateQueries(organizationKeys.getOrgPmtMethods(dto.organizationId));
-    }
+    enabled: Boolean(organizationId),
+    select
   });
 };
 
-export const useDeleteOrgPmtMethod = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      organizationId,
-      pmtMethodId,
-    }: {
-      organizationId: string;
-      pmtMethodId: string;
-    }) => {
-      const { data } = await apiRequest.delete(
-        `/api/v1/organizations/${organizationId}/billing-details/payment-methods/${pmtMethodId}`
-      );
-
-      return data;
-    },
-    onSuccess(_, dto) {
-      queryClient.invalidateQueries(organizationKeys.getOrgPmtMethods(dto.organizationId));
-    }
-  });
-}
-
-export const useGetOrgTaxIds = (organizationId: string) => {
-  return useQuery({
-    queryKey: organizationKeys.getOrgTaxIds(organizationId),
+export const useGetAvailableOrgUsers = (enabled = true) =>
+  useQuery({
+    queryKey: organizationKeys.getAvailableUsers(),
     queryFn: async () => {
-      const { data } = await apiRequest.get<TaxID[]>(
-        `/api/v1/organizations/${organizationId}/billing-details/tax-ids`
-      );
+      const { data } = await apiRequest.get<{
+        users: {
+          username: string;
+          id: string;
+          email?: string | null;
+          firstName: string;
+          lastName: string;
+        }[];
+      }>("/api/v1/organization/users/available");
 
-      return data;
+      return data.users;
     },
-    enabled: true
+    enabled
   });
-}
 
-export const useAddOrgTaxId = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      organizationId,
-      type,
-      value
-    }: {
-      organizationId: string;
-      type: string;
-      value: string;
-    }) => {
-      const { data } = await apiRequest.post(
-        `/api/v1/organizations/${organizationId}/billing-details/tax-ids`, 
-        {
-          type,
-          value
-        }
-      );
-
-      return data;
-    },
-    onSuccess(_, dto) {
-      queryClient.invalidateQueries(organizationKeys.getOrgTaxIds(dto.organizationId));
-    }
-  });
-};
-
-export const useDeleteOrgTaxId = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      organizationId,
-      taxId,
-    }: {
-      organizationId: string;
-      taxId: string;
-    }) => {
-      const { data } = await apiRequest.delete(
-        `/api/v1/organizations/${organizationId}/billing-details/tax-ids/${taxId}`
-      );
-
-      return data;
-    },
-    onSuccess(_, dto) {
-      queryClient.invalidateQueries(organizationKeys.getOrgTaxIds(dto.organizationId));
-    }
-  });
-}
-
-export const useGetOrgInvoices = (organizationId: string) => {
-  return useQuery({
-    queryKey: organizationKeys.getOrgInvoices(organizationId),
+export const useGetOrgProductStats = (orgId: string) =>
+  useQuery({
+    queryKey: organizationKeys.getOrgProductStats(orgId),
     queryFn: async () => {
-      const { data } = await apiRequest.get<Invoice[]>(
-        `/api/v1/organizations/${organizationId}/invoices`
-      );
-
+      const { data } = await apiRequest.get<TOrgProductStats>("/api/v1/organization/product-stats");
       return data;
     },
-    enabled: true
+    enabled: Boolean(orgId)
   });
-}
-
-export const useCreateCustomerPortalSession = () => {
-  return useMutation({
-    mutationFn: async (organizationId: string) => {
-      const { data } = await apiRequest.post(
-        `/api/v1/organization/${organizationId}/customer-portal-session`
-      );
-      return data;
-    }
-  });
-};

@@ -1,6 +1,7 @@
 export type TCloudIntegration = {
   name: string;
   slug: string;
+  syncSlug?: string;
   image: string;
   isAvailable: boolean;
   type: string;
@@ -10,24 +11,91 @@ export type TCloudIntegration = {
 };
 
 export type TIntegration = {
-  _id: string;
-  workspace: string;
-  environment: string;
+  id: string;
   isActive: boolean;
-  url: any;
-  app: string;
-  appId: string;
-  targetEnvironment: string;
-  targetEnvironmentId: string;
-  targetService: string;
-  targetServiceId: string;
-  owner: string;
-  path: string;
-  region: string;
+  url?: string;
+  app?: string;
+  appId?: string;
+  targetEnvironment?: string;
+  targetEnvironmentId?: string;
+  targetService?: string;
+  targetServiceId?: string;
+  owner?: string;
+  path?: string;
+  region?: string;
+  scope?: string;
   integration: string;
-  integrationAuth: string;
+  integrationAuthId: string;
+  envId: string;
   secretPath: string;
   createdAt: string;
   updatedAt: string;
+  lastUsed?: string;
+  isSynced?: boolean;
+  syncMessage?: string;
   __v: number;
+  metadata?: {
+    githubVisibility?: string;
+    githubVisibilityRepoIds?: string[];
+    shouldAutoRedeploy?: boolean;
+    secretAWSTag?: {
+      key: string;
+      value: string;
+    }[];
+    azureLabel?: string;
+
+    kmsKeyId?: string;
+    secretSuffix?: string;
+    secretPrefix?: string;
+    syncBehavior?: IntegrationSyncBehavior;
+    initialSyncBehavior: IntegrationSyncBehavior;
+    mappingBehavior?: IntegrationMappingBehavior;
+    scope: string;
+    org: string;
+    project: string;
+    environment: string;
+
+    shouldDisableDelete?: boolean;
+    shouldMaskSecrets?: boolean;
+    shouldProtectSecrets?: boolean;
+    shouldEnableDelete?: boolean;
+
+    octopusDeployScopeValues?: TOctopusDeployScopeValues;
+    awsIamRole?: string;
+    region?: string;
+    metadataSyncMode?: IntegrationMetadataSyncMode;
+  };
 };
+
+export type TOctopusDeployScopeValues = {
+  Environment?: string[];
+  Action?: string[];
+  Channel?: string[];
+  Machine?: string[];
+  ProcessOwner?: string[];
+  Role?: string[];
+};
+
+export type TIntegrationWithEnv = TIntegration & {
+  environment: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+};
+
+export enum IntegrationSyncBehavior {
+  OVERWRITE_TARGET = "overwrite-target",
+  PREFER_TARGET = "prefer-target",
+  PREFER_SOURCE = "prefer-source"
+}
+
+export enum IntegrationMappingBehavior {
+  ONE_TO_ONE = "one-to-one",
+  MANY_TO_ONE = "many-to-one"
+}
+
+export enum IntegrationMetadataSyncMode {
+  CUSTOM = "custom",
+  SECRET_METADATA = "secret-metadata"
+}

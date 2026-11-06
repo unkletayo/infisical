@@ -1,22 +1,28 @@
-# Description 📣
+## Context
 
-<!-- Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context. List any dependencies that are required for this change. -->
+<!-- What problem does this solve? What was the behavior before, and what is it now? Add all relevant context. Link related issues/tickets. -->
 
-## Type ✨
+## Screenshots
 
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Breaking change
-- [ ] Documentation
+<!-- If UI/UX changes, add screenshots or videos. Delete if not applicable. -->
 
-# Tests 🛠️
+## Steps to verify the change
 
-<!-- Please describe the tests that you ran to verify your changes. Provide instructions so we can reproduce. Please also list any relevant details for your test configuration. You may want to add screenshots when relevant and possible -->
+## Type
 
-```sh
-# Here's some code block to paste some code snippets
-```
+<!-- Tick at least one. CI fails if none are ticked. -->
 
----
+- [ ] Fix
+- [ ] Feature
+- [ ] Improvement
+- [ ] Breaking
+- [ ] Docs
+- [ ] Chore
 
-- [ ] I have read the [contributing guide](https://infisical.com/docs/contributing/overview), agreed and acknowledged the [code of conduct](https://infisical.com/docs/contributing/code-of-conduct). 📝
+## Checklist
+
+- [ ] Title follows the [conventional commit](https://www.conventionalcommits.org/en/v1.0.0/#summary) format: `type(scope): short description` (scope is optional, e.g., `fix: prevent crash on sync` or `fix(api): handle null response`). 
+- [ ] Tested locally
+- [ ] Updated docs (if needed)
+- [ ] Updated AGENTS.md files (if needed)
+- [ ] Read the [contributing guide](https://infisical.com/docs/contributing/getting-started/overview)
